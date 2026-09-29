@@ -16,7 +16,7 @@ const defaultWeights = [25, 25, 25, 25]
 type DateRow = { name: string; start: string; end: string; weight: number }
 type Props = { open: boolean; onOpenChange: (open: boolean) => void; organizationName: string }
 
-function validIsoDate(value: string) { if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(value)) return false; const date = new Date(`${value}T00:00:00`); return date.getFullYear() >= 2000 && date.getFullYear() <= 2100 && date.toISOString().slice(0, 10) === value }
+function validIsoDate(value: string) { if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false; const date = new Date(`${value}T00:00:00`); return date.getFullYear() >= 2000 && date.getFullYear() <= 2100 && date.toISOString().slice(0, 10) === value }
 function dateError(row: DateRow, previous?: DateRow) { if (!validIsoDate(row.start) || !validIsoDate(row.end)) return "Informe datas válidas entre 2000 e 2100."; if (row.end < row.start) return "A data final não pode ser anterior à inicial."; if (previous && row.start < previous.end) return "A etapa deve começar após o término da etapa anterior."; return "" }
 
 export function NewManualWizard({ open, onOpenChange, organizationName }: Props) {
