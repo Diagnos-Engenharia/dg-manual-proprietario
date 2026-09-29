@@ -5,6 +5,20 @@ import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { signUp } from "@/lib/auth-client"
 
+function formatSignUpError(error: unknown) {
+  if (!error || typeof error !== "object") return "Não foi possível criar a conta."
+  const message = "message" in error && typeof error.message === "string" ? error.message : ""
+  const code = "code" in error && typeof error.code === "string" ? error.code : ""
+
+  if (/already|exists|unique/i.test(message) || /USER_ALREADY_EXISTS/i.test(code)) {
+    return "Este e-mail já possui uma conta."
+  }
+  if (/database|relation|connect|ECONN|ENOTFOUND|timeout/i.test(message)) {
+    return "O serviço de acesso está temporariamente indisponível. Verifique a conexão com o banco de dados."
+  }
+  return message || "Não foi possível criar a conta."
+}
+
 export default function SignUpPage() {
   const router = useRouter()
   const [error, setError] = useState("")
@@ -15,14 +29,28 @@ export default function SignUpPage() {
     setLoading(true)
     setError("")
     const form = new FormData(event.currentTarget)
-    const result = await signUp.email({
-      name: String(form.get("name")),
-      email: String(form.get("email")),
-      password: String(form.get("password")),
-    })
-    if (result.error) setError("Não foi possível criar a conta.")
-    else { router.push("/"); router.refresh() }
-    setLoading(false)
+
+    try {
+      const result = await signUp.email({
+        name: String(form.get("name")),
+        email: String(form.get("email")).trim().toLowerCase(),
+        password: String(form.get("password")),
+      })
+
+      if (result.error) {
+        console.error("[auth] Falha ao criar conta", result.error)
+        setError(formatSignUpError(result.error))
+        return
+      }
+
+      router.replace("/onboarding")
+      router.refresh()
+    } catch (cause) {
+      console.error("[auth] Erro inesperado no cadastro", cause)
+      setError(formatSignUpError(cause))
+    } finally {
+      setLoading(false)
+    }
   }
 
   return <main className="flex min-h-screen items-center justify-center bg-background p-6"><form onSubmit={submit} className="w-full max-w-sm space-y-4 rounded-xl border border-border bg-card p-6 shadow-sm"><div><h1 className="text-xl font-semibold">Criar conta</h1><p className="text-sm text-muted-foreground">Comece a gerenciar seus manuais.</p></div><input name="name" required placeholder="Nome completo" className="h-10 w-full rounded-md border border-input bg-background px-3" /><input name="email" type="email" required placeholder="E-mail" className="h-10 w-full rounded-md border border-input bg-background px-3" /><input name="password" type="password" required minLength={8} placeholder="Senha (mínimo 8 caracteres)" className="h-10 w-full rounded-md border border-input bg-background px-3" />{error && <p role="alert" className="text-sm text-destructive">{error}</p>}<button disabled={loading} className="h-10 w-full rounded-md bg-primary px-4 text-primary-foreground disabled:opacity-60">{loading ? "Criando..." : "Criar conta"}</button><p className="text-center text-sm text-muted-foreground">Já possui acesso? <Link href="/sign-in" className="text-primary hover:underline">Entrar</Link></p></form></main>
