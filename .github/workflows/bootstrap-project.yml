@@ -1,0 +1,44 @@
+name: Bootstrap DG Manual do Proprietario
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".bootstrap/**"
+      - ".github/workflows/bootstrap-project.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reconstruct and publish project
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .bootstrap/part-* | tr -d '\r\n' | base64 --decode > /tmp/dg-manual-proprietario.tar.xz
+          mkdir -p /tmp/dg-manual-proprietario
+          tar -xJf /tmp/dg-manual-proprietario.tar.xz -C /tmp/dg-manual-proprietario
+
+          find . -mindepth 1 -maxdepth 1 ! -name ".git" -exec rm -rf {} +
+          cp -a /tmp/dg-manual-proprietario/. .
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No project changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Upload DG Manual do Proprietário project"
+          git push origin HEAD:main
