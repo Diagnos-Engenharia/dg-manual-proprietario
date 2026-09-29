@@ -93,7 +93,7 @@ export async function createOrganization(input: { name: string; logo?: string; i
   const organizationId = crypto.randomUUID()
   const metadata = JSON.stringify({ initials: (input.initials?.trim() || name.slice(0, 2)).toUpperCase().slice(0, 4), primaryColor: input.primaryColor || "#2563eb" })
   await db.insert(organizations).values({ id: organizationId, name, logo: input.logo?.trim() || null, slug: `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${organizationId.slice(0, 8)}`, metadata })
-  await db.insert(members).values({ id: crypto.randomUUID(), organizationId, userId: current.id, role: "admin", status: "active", lastAccessAt: new Date() })
+  await db.insert(members).values({ id: crypto.randomUUID(), organizationId, userId: current.id, role: "owner", status: "active", lastAccessAt: new Date() })
   await db.update(developments).set({ organizationId }).where(and(eq(developments.userId, current.id), isNull(developments.organizationId)))
   revalidatePath("/")
 }
