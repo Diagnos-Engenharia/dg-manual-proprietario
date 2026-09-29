@@ -1,0 +1,17 @@
+ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "whatsapp" text;
+ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "jobTitle" text;
+ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "lastAccessAt" timestamptz;
+ALTER TABLE "member" ADD COLUMN IF NOT EXISTS "status" text NOT NULL DEFAULT 'active';
+ALTER TABLE "member" ADD COLUMN IF NOT EXISTS "lastAccessAt" timestamptz;
+ALTER TABLE "development" ADD COLUMN IF NOT EXISTS "workflowStatus" text NOT NULL DEFAULT 'rascunho';
+ALTER TABLE "development" ADD COLUMN IF NOT EXISTS "lastEditorId" text;
+ALTER TABLE "development" ADD COLUMN IF NOT EXISTS "approvedVersion" integer;
+ALTER TABLE "development" ADD COLUMN IF NOT EXISTS "approvedBy" text;
+ALTER TABLE "development" ADD COLUMN IF NOT EXISTS "approvedAt" timestamptz;
+ALTER TABLE "development" ADD COLUMN IF NOT EXISTS "version" integer NOT NULL DEFAULT 1;
+CREATE TABLE IF NOT EXISTS "organization_invitation" ("id" text PRIMARY KEY, "organizationId" text NOT NULL, "email" text NOT NULL, "name" text NOT NULL, "role" text NOT NULL, "tokenHash" text NOT NULL UNIQUE, "status" text NOT NULL DEFAULT 'pending', "expiresAt" timestamptz NOT NULL, "invitedBy" text NOT NULL, "acceptedBy" text, "acceptedAt" timestamptz, "canceledAt" timestamptz, "createdAt" timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS "development_review" ("id" text PRIMARY KEY, "developmentId" text NOT NULL, "organizationId" text NOT NULL, "version" integer NOT NULL, "status" text NOT NULL, "editorId" text NOT NULL, "validatorId" text, "comment" text, "createdAt" timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS "audit_log" ("id" text PRIMARY KEY, "organizationId" text NOT NULL, "actorId" text NOT NULL, "action" text NOT NULL, "entityType" text NOT NULL, "entityId" text NOT NULL, "metadata" jsonb NOT NULL DEFAULT '{}'::jsonb, "createdAt" timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS "development_assignment" ("id" text PRIMARY KEY, "organizationId" text NOT NULL, "developmentId" text NOT NULL, "memberId" text NOT NULL, "createdAt" timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS "development_comment" ("id" text PRIMARY KEY, "developmentId" text NOT NULL, "organizationId" text NOT NULL, "authorId" text NOT NULL, "body" text NOT NULL, "createdAt" timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS "organization_notification" ("id" text PRIMARY KEY, "organizationId" text NOT NULL, "userId" text NOT NULL, "type" text NOT NULL, "title" text NOT NULL, "body" text NOT NULL, "readAt" timestamptz, "createdAt" timestamptz NOT NULL DEFAULT now());

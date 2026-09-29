@@ -1,0 +1,26 @@
+import { del } from "@vercel/blob"
+import { NextRequest, NextResponse } from "next/server"
+import { auth } from "@/lib/auth"
+import { db } from "@/lib/db"
+import { databookFiles, developments } from "@/lib/db/schema"
+import { eq, and } from "drizzle-orm"
+import { headers } from "next/headers"
+import { requireActiveMembership } from "@/lib/organization"
+
+export async function DELETE(request: NextRequest) {
+  const session = await auth.api.getSession({ headers: await headers() })
+  if (!session?.user) return NextResponse.json({ error: "Não autenticado" }, { status: 401 })
+  try {
+    const { pathname } = await request.json() as { pathname?: string }
+    if (!pathname) return NextResponse.json({ error: "Arquivo não informado" }, { status: 400 })
+    const context = await requireActiveMembership()
+    const owned = await db.select({ pathname: databookFiles.pathname }).from(databookFiles).innerJoin(developments, eq(databookFiles.developmentId, developments.id)).where(and(eq(databookFiles.pathname, pathname), eq(developments.organizationId, context.organization.id))).limit(1)
+    if (!owned[0]) return NextResponse.json({ error: "Arquivo não encontrado" }, { status: 404 })
+    await del(pathname)
+    await db.delete(databookFiles).where(and(eq(databookFiles.pathname, pathname), eq(databookFiles.userId, session.user.id)))
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error("[v0] DATABOOK delete failed", error)
+    return NextResponse.json({ error: "Não foi possível excluir o arquivo" }, { status: 500 })
+  }
+}
