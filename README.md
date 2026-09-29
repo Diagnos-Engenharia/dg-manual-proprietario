@@ -1,0 +1,1 @@
+# dg-manual-proprietario
