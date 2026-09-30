@@ -52,12 +52,14 @@ export function SistemasConstrutivos({
   scope,
   developmentId,
   manual,
+  previewMode = false,
 }: {
   items: ChecklistItem[]
   disabled?: boolean
   scope?: ChecklistScope
   developmentId?: string
   manual?: "proprietario" | "sindico"
+  previewMode?: boolean
 }) {
   const scopedItems = useMemo(() => scope ? items.filter((item) => checklistItemMatchesScope(item, scope)) : items, [items, scope])
   const [openScope, setOpenScope] = useState<Record<ChecklistScope, boolean>>({
@@ -67,6 +69,7 @@ export function SistemasConstrutivos({
   const [activeId, setActiveId] = useState<string | null>(scopedItems[0]?.id ?? null)
   const [contents, setContents] = useState<Record<string, string>>({})
   const save = async (value: Record<string, string>) => {
+    if (previewMode) return { updatedAt: new Date().toISOString() }
     if (!developmentId) throw new Error("Empreendimento não identificado")
     return saveDevelopmentModulePath(developmentId, ["manuals", manual ?? "proprietario", "sistemas"], value)
   }
