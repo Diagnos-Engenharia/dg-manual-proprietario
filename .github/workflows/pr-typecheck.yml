@@ -1,4 +1,4 @@
-name: PR typecheck
+name: PR validation
 
 on:
   pull_request:
@@ -21,3 +21,39 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec tsc --noEmit
+
+  preview-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VERCEL_ENV: preview
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build preview
+        run: pnpm build
+      - name: Start preview and validate route
+        shell: bash
+        run: |
+          pnpm start > /tmp/dg-manual-preview.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID || true' EXIT
+
+          for attempt in {1..30}; do
+            if curl --silent --fail --location http://127.0.0.1:3000/ -o /tmp/preview.html; then
+              break
+            fi
+            sleep 1
+          done
+
+          test -s /tmp/preview.html || (cat /tmp/dg-manual-preview.log && exit 1)
+          grep -q "Ambiente de teste" /tmp/preview.html || (cat /tmp/preview.html && cat /tmp/dg-manual-preview.log && exit 1)
+          grep -q "Checklist Inicial" /tmp/preview.html || (cat /tmp/preview.html && cat /tmp/dg-manual-preview.log && exit 1)
+          grep -q "Sistemas Construtivos" /tmp/preview.html || (cat /tmp/preview.html && cat /tmp/dg-manual-preview.log && exit 1)
