@@ -9,6 +9,10 @@ import { toDashboardDevelopment } from "@/lib/dashboard"
 import { DashboardInsights, DashboardPrioritySummary } from "@/components/dashboard/dashboard-insights"
 
 export default async function DashboardPage() {
+  if (process.env.VERCEL_ENV === "preview" && !process.env.DATABASE_URL) {
+    redirect("/pr-preview")
+  }
+
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) redirect("/sign-in")
   const membership = await getActiveMembership()
