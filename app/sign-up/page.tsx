@@ -43,7 +43,8 @@ export default function SignUpPage() {
         return
       }
 
-      router.replace("/onboarding")
+      const invite = new URLSearchParams(window.location.search).get("invite")
+      router.replace(invite ? "/convite/"+encodeURIComponent(invite) : "/onboarding")
       router.refresh()
     } catch (cause) {
       console.error("[auth] Erro inesperado no cadastro", cause)

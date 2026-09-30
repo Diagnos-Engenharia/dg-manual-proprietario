@@ -1,6 +1,7 @@
-import { requireCompanyRole } from "@/lib/organization"
+import { isGlobalAdmin, requireActiveMembership } from "@/lib/organization"
 import { listOrganizationDevelopments, listOrganizationMembers } from "@/app/actions/organization"
 import { listIntegrationStatus } from "@/app/actions/integrations"
+import { redirect } from "next/navigation"
 import { AppShell } from "@/components/dashboard/app-shell"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { OrganizationIdentity } from "@/components/settings/organization-identity"
@@ -8,7 +9,8 @@ import { IntegrationsPanel } from "@/components/settings/integrations-panel"
 import { TeamPageContent } from "@/components/team/team-page-content"
 
 export default async function SettingsPage(){
-  const context=await requireCompanyRole(["admin"])
+  const context=await requireActiveMembership()
+  if(!isGlobalAdmin(context.member.role))redirect("/")
   const [members,developments,integrations]=await Promise.all([
     listOrganizationMembers(),listOrganizationDevelopments(),listIntegrationStatus()
   ])

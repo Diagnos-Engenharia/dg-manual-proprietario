@@ -15,7 +15,7 @@ export function EmpreendimentosPageContent({ persisted = [], organizationName,ca
   useEffect(() => { if (searchParams.get("novo") === "1") setOpen(true) }, [searchParams])
   return <>
     {canCreate&&<div className="mb-5 flex items-center justify-end"><Button onClick={() => setOpen(true)} className="gap-2"><Plus className="h-4 w-4" />Novo Manual</Button></div>}
-    <DevelopmentsGrid items={persisted.length ? persisted.map((item) => ({ id: item.id, name: item.name, client: item.client, status: (item.status === "finalizado" || item.status === "pausado" ? item.status : "em_andamento") as "finalizado" | "pausado" | "em_andamento", deliveryDate: item.deliveryDate, masterProgress: item.masterProgress, units: Array.isArray((item.data as { units?: unknown[] } | null)?.units) ? (item.data as { units: unknown[] }).units : [] })) : undefined} />
+    <DevelopmentsGrid canCreate={canCreate} items={persisted.length ? persisted.map((item) => ({ id: item.id, name: item.name, client: item.client, status: (item.status === "finalizado" || item.status === "pausado" ? item.status : "em_andamento") as "finalizado" | "pausado" | "em_andamento", deliveryDate: item.deliveryDate, masterProgress: item.masterProgress, units: Array.isArray((item.data as { units?: unknown[] } | null)?.units) ? (item.data as { units: unknown[] }).units : [] })) : undefined} />
     <NewManualWizard open={open && canCreate} onOpenChange={setOpen} organizationName={organizationName} />
   </>
 }

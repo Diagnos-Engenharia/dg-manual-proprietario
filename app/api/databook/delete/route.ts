@@ -17,7 +17,7 @@ export async function DELETE(request: NextRequest) {
     if (!owned[0]) return NextResponse.json({ error: "Arquivo não encontrado" }, { status: 404 })
     const context = await requireDevelopmentRole(owned[0].developmentId,["admin","admin_empreendimento","editor"])
     await del(pathname)
-    await db.delete(databookFiles).where(and(eq(databookFiles.pathname, pathname), eq(databookFiles.userId, session.user.id)))
+    await db.delete(databookFiles).where(eq(databookFiles.pathname, pathname))
     await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: "databook.deleted", entityType: "development", entityId: owned[0].developmentId, metadata: { path: ["databook", owned[0].folder, owned[0].name], before: { pathname }, after: null } })
     return NextResponse.json({ success: true })
   } catch (error) {

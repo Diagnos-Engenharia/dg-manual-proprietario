@@ -22,8 +22,8 @@ type DevelopmentCard = {
   units: unknown[]
 }
 
-export function DevelopmentsGrid({ items = [] }: { items?: DevelopmentCard[] }) {
-  if (!items.length) return <div className="rounded-xl border border-dashed border-border p-10 text-center"><p className="font-medium">Nenhum empreendimento cadastrado</p><p className="mt-1 text-sm text-muted-foreground">Crie o primeiro empreendimento para iniciar um manual.</p><Link href="/empreendimentos?novo=1" className="mt-4 inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground">Criar primeiro empreendimento</Link></div>
+export function DevelopmentsGrid({ items = [],canCreate=true }: { items?: DevelopmentCard[];canCreate?:boolean }) {
+  if (!items.length) return <div className="rounded-xl border border-dashed border-border p-10 text-center"><p className="font-medium">Nenhum empreendimento cadastrado</p><p className="mt-1 text-sm text-muted-foreground">{canCreate?"Crie o primeiro empreendimento para iniciar um manual.":"Solicite ao administrador acesso a um empreendimento."}</p>{canCreate&&<Link href="/empreendimentos?novo=1" className="mt-4 inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground">Criar primeiro empreendimento</Link>}</div>
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {items.map((dev) => (
