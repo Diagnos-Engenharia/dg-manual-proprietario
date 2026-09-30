@@ -1,8 +1,8 @@
 'use server'
 
 import { db } from '@/lib/db'
-import { databookFiles, developments, finishingTableHistory, finishingTables } from '@/lib/db/schema'
-import { and, eq, sql } from 'drizzle-orm'
+import { auditLogs, databookFiles, developments, finishingTableHistory, finishingTables, user } from '@/lib/db/schema'
+import { and, desc, eq, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { recordAudit, requireActiveMembership, requireCompanyRole } from '@/lib/organization'
 
@@ -88,6 +88,10 @@ export async function saveDevelopmentModulePath(id: string, path: string[], valu
   if (path.length === 0 || path.some((segment) => !/^[a-zA-Z0-9_-]+$/.test(segment))) throw new Error("Caminho de persistência inválido")
   const conditions = [eq(developments.id, id), eq(developments.organizationId, context.organization.id)]
   if (expectedUpdatedAt) conditions.push(eq(developments.updatedAt, new Date(expectedUpdatedAt)))
+  const beforeRows = await db.select({ data: developments.data }).from(developments).where(and(eq(developments.id, id), eq(developments.organizationId, context.organization.id))).limit(1)
+  if (!beforeRows[0]) throw new Error("Empreendimento não encontrado")
+  const previous = path.reduce<unknown>((node, key) => node && typeof node === "object" ? (node as Record<string, unknown>)[key] : undefined, beforeRows[0].data)
+  if (JSON.stringify(previous) === JSON.stringify(value)) return { updatedAt: new Date().toISOString(), version: 0 }
   const jsonPath = `{${path.join(",")}}`
   // jsonb_set only creates the final key: construct missing ancestors atomically.
   let nextData = sql`coalesce(${developments.data}, '{}'::jsonb)`
@@ -98,7 +102,7 @@ export async function saveDevelopmentModulePath(id: string, path: string[], valu
   nextData = sql`jsonb_set(${nextData}, ${jsonPath}::text[], ${JSON.stringify(value)}::jsonb, true)`
   const result = await db.update(developments).set({ data: nextData, updatedAt: new Date(), lastEditorId: context.user.id, version: sql`${developments.version} + 1` }).where(and(...conditions)).returning({ updatedAt: developments.updatedAt, version: developments.version })
   if (!result[0]) throw new Error(expectedUpdatedAt ? "Este conteúdo foi atualizado por outro usuário. Revise as alterações antes de salvar." : "Empreendimento não encontrado")
-  await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: "development.path_edited", entityType: "development", entityId: id, metadata: { path, version: result[0].version } })
+  await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: "development.path_edited", entityType: "development", entityId: id, metadata: { path, before: previous ?? null, after: value, version: result[0].version } })
   revalidatePath(`/empreendimentos/${id}`)
   return { updatedAt: result[0].updatedAt.toISOString(), version: result[0].version }
 }
@@ -107,9 +111,29 @@ export async function saveDevelopmentModule(id: string, module: string, value: u
   const context = await requireCompanyRole(["admin", "editor"])
   const conditions = [eq(developments.id, id), eq(developments.organizationId, context.organization.id)]
   if (expectedUpdatedAt) conditions.push(eq(developments.updatedAt, new Date(expectedUpdatedAt)))
+  const beforeRows = await db.select({ data: developments.data }).from(developments).where(and(eq(developments.id, id), eq(developments.organizationId, context.organization.id))).limit(1)
+  const previous = (beforeRows[0]?.data as Record<string, unknown> | undefined)?.[module]
   const result = await db.update(developments).set({ data: sql`coalesce(${developments.data}, '{}'::jsonb) || ${JSON.stringify({ [module]: value })}::jsonb`, updatedAt: new Date(), lastEditorId: context.user.id, version: sql`${developments.version} + 1`, workflowStatus: sql`case when ${developments.workflowStatus} in ('aprovado', 'publicado') then 'em_elaboracao' else ${developments.workflowStatus} end`, approvedVersion: null, approvedBy: null, approvedAt: null }).where(and(...conditions)).returning({ updatedAt: developments.updatedAt, version: developments.version })
   if (!result[0]) throw new Error(expectedUpdatedAt ? "Este conteúdo foi atualizado por outro usuário. Revise as alterações antes de salvar." : "Empreendimento não encontrado")
-  await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: "development.edited", entityType: "development", entityId: id, metadata: { module, version: result[0].version } })
+  await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: "development.edited", entityType: "development", entityId: id, metadata: { module, before: previous ?? null, after: value, version: result[0].version } })
   revalidatePath(`/empreendimentos/${id}`)
   return { updatedAt: result[0].updatedAt.toISOString(), version: result[0].version }
+}
+
+
+export async function listDevelopmentHistory(developmentId: string) {
+  const context = await requireActiveMembership()
+  const scoped = await db.select({ id: developments.id }).from(developments).where(and(eq(developments.id, developmentId), eq(developments.organizationId, context.organization.id))).limit(1)
+  if (!scoped[0]) throw new Error("Empreendimento não encontrado")
+  const rows = await db.select({
+    id: auditLogs.id,
+    action: auditLogs.action,
+    metadata: auditLogs.metadata,
+    createdAt: auditLogs.createdAt,
+    actorName: user.name,
+    actorEmail: user.email,
+  }).from(auditLogs).innerJoin(user, eq(auditLogs.actorId, user.id))
+    .where(and(eq(auditLogs.entityId, developmentId), eq(auditLogs.organizationId, context.organization.id)))
+    .orderBy(desc(auditLogs.createdAt)).limit(200)
+  return rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }))
 }

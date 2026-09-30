@@ -1,4 +1,5 @@
 import { saveManualFile } from "@/lib/manual-files"
+import { assessManualReadiness } from "@/lib/completion"
 import { selectManualSystems, htmlToLines } from "@/lib/manual-content"
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib"
 import { NextResponse } from "next/server"
@@ -19,7 +20,8 @@ export async function POST(request: Request) {
   const revision = (existing[0]?.revision ?? 0) + 1
   const data = (row[0].data ?? {}) as Record<string, unknown>
   const systems = selectManualSystems(data, manualType)
-  if (systems.length === 0) return NextResponse.json({ error: "Marque os sistemas aplicáveis como Possui no empreendimento antes de emitir este manual." }, { status: 400 })
+  const readiness = assessManualReadiness(data, manualType, finishing ? 1 : 0)
+  if (!readiness.ok) return NextResponse.json({ error: "Não é possível emitir: " + readiness.blocking.join("; "), blocking: readiness.blocking, stages: readiness.stages }, { status: 400 })
   const pdf = await PDFDocument.create()
   const font = await pdf.embedFont(StandardFonts.Helvetica)
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold)

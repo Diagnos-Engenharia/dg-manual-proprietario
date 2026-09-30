@@ -1,4 +1,5 @@
 import { selectManualSystems } from "@/lib/manual-content"
+import { assessManualReadiness } from "@/lib/completion"
 import { NextResponse } from "next/server"
 import { and, eq } from "drizzle-orm"
 import { db } from "@/lib/db"
@@ -16,15 +17,16 @@ export async function POST(request: Request) {
   const systems = selectManualSystems(data, manualType)
   const files = await db.select({ name: databookFiles.name, pathname: databookFiles.pathname, sizeBytes: databookFiles.sizeBytes }).from(databookFiles).where(eq(databookFiles.developmentId, body.developmentId))
   const finishing = manualType === "proprietario" ? await db.select().from(finishingTables).where(and(eq(finishingTables.developmentId, body.developmentId), eq(finishingTables.organizationId, context.organization.id))) : []
-  const blocking: string[] = []
+  const readiness = assessManualReadiness(data, manualType, finishing.length)
+  const blocking: string[] = [...readiness.blocking]
   const alerts: string[] = []
-  if (systems.length === 0) blocking.push("Nenhum sistema aplicável foi marcado como Possui no empreendimento neste manual.")
+
   if (!row[0].name.trim()) blocking.push("O empreendimento não possui nome cadastrado.")
   const content = (data.manuals as Record<string, { sistemas?: Record<string, string> }> | undefined)?.[manualType]
   if (systems.some(({ item, key }) => content?.sistemas?.[key] === undefined && content?.sistemas?.[item.id] === undefined)) alerts.push("Há sistemas que ainda utilizam a diretriz inicial. Revise as especificações antes de emitir.")
   if (files.length === 0) alerts.push("Nenhum anexo do DATABOOK está associado a esta revisão.")
-  if (manualType === "proprietario" && finishing.length === 0) blocking.push("A Tabela de Acabamentos não foi cadastrada para o Manual do Proprietário.")
+
   if (finishing.some((table) => Object.values((table.data as Record<string, unknown>) ?? {}).every((value) => !Array.isArray(value) || value.length === 0))) alerts.push("Há grupos da Tabela de Acabamentos sem registros.")
   if (row[0].workflowStatus === "aprovado" || row[0].workflowStatus === "publicado") alerts.push("A emissão criará uma nova revisão sem apagar a versão anterior.")
-  return NextResponse.json({ ok: blocking.length === 0, blocking, alerts, sections: systems.length + 1 + (manualType === "proprietario" && finishing.length ? 1 : 0), attachments: files, manualType, development: row[0].name, finishing: finishing.map((table) => ({ id: table.id, tower: table.tower, typology: table.typology, unitModel: table.unitModel, area: table.area, revision: table.revision, status: table.status, updatedAt: table.updatedAt })) })
+  return NextResponse.json({ ok: blocking.length === 0, blocking, stages: readiness.stages, overall: readiness.overall, alerts, sections: systems.length + 1 + (manualType === "proprietario" && finishing.length ? 1 : 0), attachments: files, manualType, development: row[0].name, finishing: finishing.map((table) => ({ id: table.id, tower: table.tower, typology: table.typology, unitModel: table.unitModel, area: table.area, revision: table.revision, status: table.status, updatedAt: table.updatedAt })) })
 }
