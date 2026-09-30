@@ -49,7 +49,7 @@ export function phaseProgress(stage: SchedulePhase | string, progress: SectionPr
   if (name === "ficha" || name === "Ficha Técnica do Empreendimento" || id === "stage-1" || id === "ph-sistemas") return progress.ficha
   if (name === "checklist" || name === "Checklist Inicial" || id === "stage-2" || id === "ph-fornecedores") return progress.checklist
   if (name === "proprietario" || name === "Manual do Proprietário" || id === "stage-3" || id === "ph-revestimentos") return progress.proprietario
-  if (name === "sindico" || name === "Manual do Síndico" || id === "stage-4" || id === "ph-garantias") return progress.sindico
+  if (name === "sindico" || name === "Manual do Síndico" || id === "stage-4" || id === "ph-areas-comuns") return progress.sindico
   return typeof stage === "string" ? 0 : (stage.progress ?? 0)
 }
 export function masterFromStages(stages: SchedulePhase[], progress: SectionProgress): number {

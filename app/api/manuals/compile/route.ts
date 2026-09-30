@@ -64,7 +64,16 @@ export async function POST(request: Request) {
     }
     if (system.item.norms.length) draw(`Normas: ${system.item.norms.join(", ")}`, 9)
   }
-  const sectionCount = systems.length + 1 + (finishing ? 1 : 0)
+  const contacts = ((data.authoring as { contacts?: Array<{kind:string;name:string;company:string;discipline:string;registration:string;phone:string;email:string}> } | undefined)?.contacts ?? [])
+  if (contacts.length) {
+    draw("PROJETISTAS E FORNECEDORES",14,true)
+    for (const contact of contacts) {
+      draw((contact.kind==="projetista"?"Projetista: ":"Fornecedor: ")+contact.name+" - "+contact.company,11,true)
+      draw((contact.kind==="projetista"?"Disciplina: ":"Ramo: ")+contact.discipline+" | Registro: "+(contact.registration||"Não informado"),9)
+      draw("Telefone: "+(contact.phone||"Não informado")+" | E-mail: "+(contact.email||"Não informado"),9)
+    }
+  }
+  const sectionCount = systems.length + 1 + (finishing ? 1 : 0) + (contacts.length ? 1 : 0)
   const finishingRows = finishing ? Object.values((finishing.data as Record<string, Array<Record<string, string>>>) ?? {}).flat() : []
   if (finishing) {
     draw("TABELA DE ACABAMENTOS", 14, true)

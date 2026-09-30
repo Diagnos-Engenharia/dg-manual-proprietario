@@ -17,7 +17,7 @@ const modules = [
   { id: "identidade", label: "Design do Manual", icon: Palette },
   { id: "elaboracao", label: "Elaboração", icon: FileEdit },
   { id: "databook", label: "DATABOOK", icon: Briefcase },
-  { id: "emissao", label: "Emissão de PDF", icon: FileOutput },
+  { id: "emissao", label: "Emitir PDF", icon: FileOutput },
 ] as const
 
 type ModuleId = (typeof modules)[number]["id"]
