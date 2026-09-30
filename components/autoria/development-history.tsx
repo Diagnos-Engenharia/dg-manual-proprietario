@@ -22,7 +22,7 @@ const fieldLabels:Record<string,string>={
   sistemas:"Descrição técnica",manutencao:"Manutenção preventiva",comissionamento:"Comissionamento",
 }
 const checklistMap=new Map(checklistItems.map(item=>[item.id,item.item]))
-const validationLabels:Record<string,string>={rascunho:"Rascunho",aguardando_validacao:"Aguardando validação",aprovado:"Validado",reprovado:"Reprovado"}
+const validationLabels:Record<string,string>={rascunho:"Rascunho",aguardando_validacao:"Aguardando validação",aprovado:"Aprovado",reprovado:"Reprovado"}
 
 function cleanSegment(value:string){
   const base=value.split("::")[0]
@@ -55,7 +55,7 @@ function normalize(entry:Entry){
   }
   const last=path.at(-1)??entry.action
   const field=fieldLabels[last]??(last.includes("::")?"Conteúdo":cleanSegment(last))
-  const actionTitle=entry.action==="content.approved"?"Validado":entry.action==="content.rejected"?"Reprovado":entry.action==="content.sent_for_validation"?"Enviado para validação":null
+  const actionTitle=entry.action==="content.approved"?"Aprovado":entry.action==="content.rejected"?"Reprovado":entry.action==="content.sent_for_validation"?"Enviado para validação":null
   const scope=path.find(part=>part.includes("::"))?.split("::").at(-1)
   const scopeLabel=scope==="unidade"||scope==="comum"?scopeLabels[scope]:null
   const section=path.find(part=>part==="sistemas"||part==="manutencao")
@@ -98,7 +98,7 @@ export function DevelopmentHistory({developmentId}:{developmentId:string}){
     {error&&<p role="alert" className="mb-3 text-sm text-destructive">{error}</p>}
     <div className="space-y-3">{groups.map(group=><article key={group.key} className="rounded-lg border border-border p-4">
       <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{group.module}</Badge><strong className="text-sm">{group.title.replace(group.module+" · ","")}</strong></div><p className="mt-1 text-xs text-muted-foreground">{group.actor}</p></div><time className="text-xs text-muted-foreground">{new Date(group.createdAt).toLocaleString("pt-BR")}</time></div>
-      <div className="mt-3 space-y-2">{group.changes.map((change,index)=><div key={index} className="grid gap-1 rounded-md bg-muted/30 px-3 py-2 text-xs sm:grid-cols-[150px_1fr_auto_1fr] sm:items-center"><span className="font-medium">{change.field}</span><span className="truncate text-muted-foreground">{change.before}</span><span className="hidden text-muted-foreground sm:inline">→</span><span className="truncate">{change.after}</span></div>)}</div>
+      <div className="mt-3 space-y-2">{group.changes.map((change,index)=>change.field==="Motivo"?<div key={index} className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2.5 text-xs"><span className="font-semibold text-destructive">Motivo da reprovação</span><p className="mt-1 whitespace-pre-wrap leading-relaxed text-foreground">{change.after}</p></div>:<div key={index} className="grid gap-1 rounded-md bg-muted/30 px-3 py-2 text-xs sm:grid-cols-[150px_1fr_auto_1fr] sm:items-center"><span className="font-medium">{change.field}</span><span className="truncate text-muted-foreground">{change.before}</span><span className="hidden text-muted-foreground sm:inline">→</span><span className="truncate">{change.after}</span></div>)}</div>
     </article>)}</div>
     {!loading&&!groups.length&&!error&&<p className="py-8 text-center text-sm text-muted-foreground">Nenhuma alteração registrada.</p>}
   </Card>
