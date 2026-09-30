@@ -1,6 +1,7 @@
 "use client"
 
-import { useMemo,useRef,useState } from "react"
+import { useEffect,useMemo,useRef,useState } from "react"
+import { usePathname,useRouter,useSearchParams } from "next/navigation"
 import { Boxes,Contact,Droplets,FileText,History,ListChecks } from "lucide-react"
 import { useDevelopmentStore } from "@/lib/store"
 import { linkedSystemItems,type ChecklistItem,type ChecklistStatus,type ChecklistScope } from "@/lib/mock-data"
@@ -28,9 +29,12 @@ const subTabs=[
 ] as const
 
 export function AuthoringWorkspace({role,developmentId}:{role:"admin"|"editor"|"validator";developmentId:string}){
+  const router=useRouter(),pathname=usePathname(),searchParams=useSearchParams()
+  const requestedTab=searchParams.get("aba")
+  const requested=subTabs.some(tab=>tab.id===requestedTab)?requestedTab as SubTabId:null
   const development=useDevelopmentStore(state=>state.developments[developmentId])
   const updateChecklistItem=useDevelopmentStore(state=>state.updateChecklistItem)
-  const [activeTab,setActiveTab]=useState<SubTabId>("checklist")
+  const [activeTab,setActiveTab]=useState<SubTabId>(requested??"checklist")
   const [checklistSaving,setChecklistSaving]=useState(false)
   const [checklistError,setChecklistError]=useState<string|null>(null)
   const queue=useRef(Promise.resolve())
@@ -39,6 +43,15 @@ export function AuthoringWorkspace({role,developmentId}:{role:"admin"|"editor"|"
   const linked=useMemo(()=>linkedSystemItems(checklist),[checklist])
   const progress=useMemo(()=>checklistProgress(checklist),[checklist])
   const manuals=(development?.manuals??{}) as Record<string,ManualContent>
+
+  useEffect(()=>{if(requested)setActiveTab(requested)},[requested])
+  function selectTab(tab:SubTabId){
+    setActiveTab(tab)
+    const params=new URLSearchParams(searchParams.toString())
+    params.set("modulo","elaboracao")
+    params.set("aba",tab)
+    router.replace(pathname+"?"+params.toString(),{scroll:false})
+  }
 
   function persistChecklist(next:ChecklistItem[]){
     setChecklistSaving(true);setChecklistError(null)
@@ -60,7 +73,7 @@ export function AuthoringWorkspace({role,developmentId}:{role:"admin"|"editor"|"
   return <div className="flex flex-col gap-5">
     <div className="flex justify-end"><Badge variant="outline">Checklist {progress}%</Badge></div>
     <div className="flex flex-wrap justify-center gap-1 border-b border-border pb-px">
-      {subTabs.map(tab=>{const Icon=tab.icon;return <button key={tab.id} onClick={()=>setActiveTab(tab.id)} className={cn("flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium",activeTab===tab.id?"border-primary text-foreground":"border-transparent text-muted-foreground hover:text-foreground")}><Icon className="h-4 w-4"/>{tab.label}{tab.id==="sistemas"&&<Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">{linked.length}</Badge>}</button>})}
+      {subTabs.map(tab=>{const Icon=tab.icon;return <button key={tab.id} onClick={()=>selectTab(tab.id)} className={cn("flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium",activeTab===tab.id?"border-primary text-foreground":"border-transparent text-muted-foreground hover:text-foreground")}><Icon className="h-4 w-4"/>{tab.label}{tab.id==="sistemas"&&<Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">{linked.length}</Badge>}</button>})}
     </div>
     <div className="flex min-w-0 flex-col gap-4">
       {!canEdit&&activeTab!=="historico"&&activeTab!=="sistemas"&&<p className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">Somente leitura.</p>}
