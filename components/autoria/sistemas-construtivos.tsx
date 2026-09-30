@@ -30,7 +30,6 @@ import {
 } from "lucide-react"
 import {
   nbrNorms,
-  getChecklistItemScopes,
   checklistItemMatchesScope,
   checklistItemContextKey,
   type ChecklistItem,
@@ -40,6 +39,8 @@ import {
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
+import { Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle } from "@/components/ui/dialog"
 import { RichTextEditor } from "@/components/autoria/rich-text-editor"
 import { cn } from "@/lib/utils"
 
@@ -120,6 +121,14 @@ export function SistemasConstrutivos({
   }
   const status=(section:ContentSection)=>validations.find(row=>row.contextKey===key&&row.section===section)?.status??"rascunho"
   const comment=(section:ContentSection)=>validations.find(row=>row.contextKey===key&&row.section===section)?.comment??null
+  function setValidationState(section:ContentSection,nextStatus:ContentValidationStatus,nextComment:string|null=null){
+    setValidations(rows=>{
+      const updatedAt=new Date().toISOString()
+      const existing=rows.find(row=>row.contextKey===key&&row.section===section)
+      if(!existing)return [...rows,{contextKey:key,section,status:nextStatus,comment:nextComment,updatedAt}]
+      return rows.map(row=>row.contextKey===key&&row.section===section?{...row,status:nextStatus,comment:nextComment,updatedAt}:row)
+    })
+  }
   const technicalStatus=status("sistemas")
   const maintenanceStatus=status("manutencao")
   const technicalLocked=technicalStatus==="aguardando_validacao"
@@ -145,18 +154,18 @@ export function SistemasConstrutivos({
 
     <div className="min-w-0 space-y-6">
       <section className="space-y-3">
-        <div><h3 className="text-lg font-semibold">{item.item}</h3>{item.norms.length>0&&<div className="mt-2 flex flex-wrap gap-1.5">{item.norms.map(code=><Badge key={code} variant="outline" title={nbrNorms[code]} className="gap-1 border-primary/30 bg-primary/5"><BookMarked className="h-3 w-3 text-primary"/><span className="font-mono">{code}</span></Badge>)}</div>}</div>
+        <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="text-lg font-semibold">{item.item}</h3>{item.norms.length>0&&<div className="flex flex-wrap justify-end gap-1.5">{item.norms.map(code=><Badge key={code} variant="outline" title={nbrNorms[code]} className="gap-1 border-primary/30 bg-primary/5"><BookMarked className="h-3 w-3 text-primary"/><span className="font-mono">{code}</span></Badge>)}</div>}</div>
         <div>
           <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Descrição técnica</p><ValidationStatusBadge status={technicalStatus}/></div>
           <div className={cn("transition-opacity",technicalLocked&&"opacity-60")}><RichTextEditor key={"content-"+key} value={contents[scope][key]??contents[scope][item.id]??""} onChange={updateContent} disabled={!canEdit||technicalLocked}/></div>
-          <div className="mt-2 flex flex-wrap items-start justify-between gap-3"><div className="min-h-5"><PersistenceStatus state={contentPersistence.state} savedAt={contentPersistence.savedAt} error={contentPersistence.error} onRetry={()=>void contentPersistence.persist()}/></div><ValidationActions key={key+"-sistemas"} developmentId={developmentId} contextKey={key} section="sistemas" label={item.item} role={role} status={technicalStatus} comment={comment("sistemas")} beforeSend={contentPersistence.flush} onDone={loadValidations}/></div>
+          <div className="mt-2 flex flex-wrap items-start justify-between gap-3"><div className="min-h-5"><PersistenceStatus state={contentPersistence.state} savedAt={contentPersistence.savedAt} error={contentPersistence.error} onRetry={()=>void contentPersistence.persist()}/></div><ValidationActions key={key+"-sistemas"} developmentId={developmentId} contextKey={key} section="sistemas" label={item.item} role={role} status={technicalStatus} comment={comment("sistemas")} beforeSend={contentPersistence.flush} onStatusChange={(nextStatus,nextComment)=>setValidationState("sistemas",nextStatus,nextComment)} onDone={loadValidations}/></div>
         </div>
       </section>
 
       <section className="space-y-3 border-t border-border pt-5">
         <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="flex items-center gap-2 text-sm font-semibold"><Wrench className="h-4 w-4 text-primary"/>Manutenção preventiva</h3><ValidationStatusBadge status={maintenanceStatus}/></div>
         <div className={cn("transition-opacity",maintenanceLocked&&"opacity-60")}><MaintenanceTable items={maintenance[scope][key]??(item.maintenance??[]).map(row=>({...row,responsible:scope==="unidade"?"Proprietário" as const:"Síndico" as const}))} disabled={!canEdit||maintenanceLocked} defaultResponsible={scope==="unidade"?"Proprietário":"Síndico"} onChange={updateMaintenance}/></div>
-        <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-h-5"><PersistenceStatus state={maintenancePersistence.state} savedAt={maintenancePersistence.savedAt} error={maintenancePersistence.error} onRetry={()=>void maintenancePersistence.persist()}/></div><ValidationActions key={key+"-manutencao"} developmentId={developmentId} contextKey={key} section="manutencao" label={item.item} role={role} status={maintenanceStatus} comment={comment("manutencao")} beforeSend={maintenancePersistence.flush} onDone={loadValidations}/></div>
+        <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-h-5"><PersistenceStatus state={maintenancePersistence.state} savedAt={maintenancePersistence.savedAt} error={maintenancePersistence.error} onRetry={()=>void maintenancePersistence.persist()}/></div><ValidationActions key={key+"-manutencao"} developmentId={developmentId} contextKey={key} section="manutencao" label={item.item} role={role} status={maintenanceStatus} comment={comment("manutencao")} beforeSend={maintenancePersistence.flush} onStatusChange={(nextStatus,nextComment)=>setValidationState("manutencao",nextStatus,nextComment)} onDone={loadValidations}/></div>
       </section>
       {validationError&&<p className="text-sm text-destructive">{validationError}</p>}
     </div>
@@ -172,25 +181,83 @@ function ValidationStatusBadge({status}:{status:ContentValidationStatus}){
   return null
 }
 
-function ValidationActions({developmentId,contextKey,section,label,role,status,comment,beforeSend,onDone}:{developmentId:string;contextKey:string;section:ContentSection;label:string;role:"admin"|"editor"|"validator";status:ContentValidationStatus;comment:string|null;beforeSend:()=>Promise<void>;onDone:()=>Promise<void>}){
+function ValidationActions({developmentId,contextKey,section,label,role,status,comment,beforeSend,onStatusChange,onDone}:{developmentId:string;contextKey:string;section:ContentSection;label:string;role:"admin"|"editor"|"validator";status:ContentValidationStatus;comment:string|null;beforeSend:()=>Promise<void>;onStatusChange:(status:ContentValidationStatus,comment?:string|null)=>void;onDone:()=>Promise<void>}){
   const [busy,setBusy]=useState(false)
   const [error,setError]=useState<string|null>(null)
-  const send=async()=>{setBusy(true);setError(null);try{await beforeSend();await submitSystemItemForValidation({developmentId,contextKey,section,label});await onDone()}catch(e){setError(e instanceof Error?e.message:"Falha ao enviar")}finally{setBusy(false)}}
-  const approve=async()=>{setBusy(true);setError(null);try{const result=await validateSystemItem({developmentId,contextKey,section,label});if(result.error)throw new Error(result.error);await onDone()}catch(e){setError(e instanceof Error?e.message:"Falha ao aprovar")}finally{setBusy(false)}}
-  const reject=async()=>{const reason=window.prompt("Motivo da reprovação");if(!reason?.trim())return;setBusy(true);setError(null);try{const result=await rejectSystemItem({developmentId,contextKey,section,label,comment:reason});if(result.error)throw new Error(result.error);await onDone()}catch(e){setError(e instanceof Error?e.message:"Falha ao reprovar")}finally{setBusy(false)}}
+  const [rejectOpen,setRejectOpen]=useState(false)
+  const [reason,setReason]=useState("")
+
+  const send=async()=>{
+    setBusy(true);setError(null)
+    try{
+      await beforeSend()
+      await submitSystemItemForValidation({developmentId,contextKey,section,label})
+      onStatusChange("aguardando_validacao",null)
+      await onDone()
+    }catch(e){setError(e instanceof Error?e.message:"Falha ao enviar")}
+    finally{setBusy(false)}
+  }
+
+  const approve=async()=>{
+    setBusy(true);setError(null)
+    try{
+      const result=await validateSystemItem({developmentId,contextKey,section,label})
+      if(result.error)throw new Error(result.error)
+      onStatusChange("aprovado",null)
+      await onDone()
+    }catch(e){setError(e instanceof Error?e.message:"Falha ao aprovar")}
+    finally{setBusy(false)}
+  }
+
+  const reject=async()=>{
+    const commentText=reason.trim()
+    if(!commentText){setError("Informe o motivo da reprovação.");return}
+    setBusy(true);setError(null)
+    try{
+      const result=await rejectSystemItem({developmentId,contextKey,section,label,comment:commentText})
+      if(result.error)throw new Error(result.error)
+      onStatusChange("reprovado",commentText)
+      setRejectOpen(false)
+      setReason("")
+      await onDone()
+    }catch(e){setError(e instanceof Error?e.message:"Falha ao reprovar")}
+    finally{setBusy(false)}
+  }
+
   const canSend=role==="editor"||role==="admin"
   const canDecide=role==="validator"||role==="admin"
   const showSend=canSend&&status!=="aguardando_validacao"&&status!=="aprovado"
   const showDecision=canDecide&&status==="aguardando_validacao"
   if(!showSend&&!showDecision&&!(comment&&status==="reprovado")&&!error)return null
-  return <div className="flex max-w-full flex-col items-end gap-1">
-    <div className="flex flex-wrap items-center justify-end gap-2">
-      {showSend&&<Button size="sm" variant="outline" disabled={busy} onClick={()=>void send()}><Send className="h-3.5 w-3.5"/>Mandar para validação</Button>}
-      {showDecision&&<><Button size="sm" disabled={busy} onClick={()=>void approve()}><Check className="h-3.5 w-3.5"/>Aprovar</Button><Button size="sm" variant="outline" disabled={busy} onClick={()=>void reject()}><X className="h-3.5 w-3.5"/>Reprovar</Button></>}
+
+  return <>
+    <div className="flex max-w-full flex-col items-end gap-1">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {showSend&&<Button size="sm" variant="outline" disabled={busy} onClick={()=>void send()}><Send className="h-3.5 w-3.5"/>Mandar para validação</Button>}
+        {showDecision&&<><Button size="sm" disabled={busy} onClick={()=>void approve()}><Check className="h-3.5 w-3.5"/>Aprovar</Button><Button size="sm" variant="outline" disabled={busy} onClick={()=>{setError(null);setRejectOpen(true)}}><X className="h-3.5 w-3.5"/>Reprovar</Button></>}
+      </div>
+      {comment&&status==="reprovado"&&<span className="max-w-md text-right text-xs text-destructive">{comment}</span>}
+      {error&&<span className="max-w-md text-right text-xs text-destructive">{error}</span>}
     </div>
-    {comment&&status==="reprovado"&&<span className="max-w-md text-right text-xs text-destructive">{comment}</span>}
-    {error&&<span className="text-xs text-destructive">{error}</span>}
-  </div>
+
+    <Dialog open={rejectOpen} onOpenChange={open=>{if(!busy){setRejectOpen(open);if(!open){setReason("");setError(null)}}}}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Reprovar conteúdo</DialogTitle>
+          <DialogDescription>Informe o motivo da reprovação. O editor receberá esta justificativa e ela ficará registrada no histórico do empreendimento.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <label htmlFor={"reject-reason-"+section} className="text-sm font-medium">Motivo da reprovação</label>
+          <Textarea id={"reject-reason-"+section} value={reason} onChange={event=>setReason(event.target.value)} rows={5} placeholder="Descreva objetivamente o que precisa ser corrigido." autoFocus/>
+          {error&&<p className="text-xs text-destructive">{error}</p>}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" disabled={busy} onClick={()=>setRejectOpen(false)}>Cancelar</Button>
+          <Button variant="destructive" disabled={busy||!reason.trim()} onClick={()=>void reject()}>{busy?"Reprovando…":"Confirmar reprovação"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  </>
 }
 
 function MaintenanceTable({items:rows,disabled,onChange,defaultResponsible}:{items:MaintenanceItem[];disabled?:boolean;onChange:(rows:MaintenanceItem[])=>void;defaultResponsible:MaintenanceItem["responsible"]}){
