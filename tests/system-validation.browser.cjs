@@ -14,8 +14,13 @@ async function signup(context,email,name){
   await page.getByPlaceholder('E-mail',{exact:true}).fill(email)
   await page.getByPlaceholder('Senha (mínimo 8 caracteres)').fill(password)
   await page.getByRole('button',{name:'Criar conta',exact:true}).click()
-  await page.waitForURL('**/onboarding')
-  const user=(await pool.query('SELECT id FROM "user" WHERE email=$1',[email])).rows[0]
+  let user=null
+  for(let attempt=0;attempt<40;attempt++){
+    user=(await pool.query('SELECT id FROM "user" WHERE email=$1',[email])).rows[0]??null
+    if(user)break
+    await new Promise(resolve=>setTimeout(resolve,250))
+  }
+  if(!user)throw new Error('Cadastro de teste não foi persistido: '+email)
   return {page,userId:user.id}
 }
 
@@ -26,6 +31,7 @@ async function signup(context,email,name){
   const validatorContext=await browser.newContext()
   try{
     const owner=await signup(ownerContext,'validation-owner-'+suffix+'@example.test','Administrador')
+    await owner.page.goto(origin+'/onboarding')
     await owner.page.getByPlaceholder('Nome oficial da empresa').fill('Construtora validação '+suffix)
     await owner.page.getByRole('button',{name:'Salvar e acessar o Dashboard'}).click()
     await owner.page.waitForURL(origin+'/')
