@@ -42,6 +42,7 @@ export function ChecklistInicial({items,onChangeStatus,onChangeScopes,disabled}:
           type="button"
           aria-expanded={open}
           aria-controls={"checklist-category-"+category.replace(/[^a-zA-Z0-9]+/g,"-").toLowerCase()}
+          title={open?"Recolher itens":"Exibir todos os itens"}
           onClick={()=>setOpenCategory(current=>current===category?null:category)}
           className={cn(
             "flex w-full items-center gap-3 px-4 py-3 text-left transition-colors",
