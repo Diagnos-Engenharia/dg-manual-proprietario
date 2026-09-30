@@ -78,6 +78,7 @@ async function until(check, label) {
     await until(async () => (await page.locator('.tiptap').textContent()).includes('PORTA_COMUM_CORTA_FOGO'), 'common content after reload')
     assert.equal(await page.getByPlaceholder('Descrição da atividade').inputValue(), 'INSPECAO_COMUM')
     await page.getByRole('tab', { name: /Manual do Proprietário/ }).click()
+    await page.getByRole('button', { name: 'Esquadrias compartilhadas', exact: true }).click()
     await until(async () => (await page.locator('.tiptap').textContent()).includes('VIDRO_PRIVATIVO_ALUMINIO'), 'unit content after reload')
     assert.equal(await page.getByPlaceholder('Descrição da atividade').inputValue(), 'LIMPEZA_PRIVATIVA')
     await page.screenshot({ path: path.join(output, 'proprietario.png'), fullPage: true })
@@ -89,7 +90,12 @@ async function until(check, label) {
     await page.getByRole('tab', { name: /Manual do Síndico/ }).click()
     assert.equal(await page.getByText('Edição congelada', { exact: true }).count(), 0)
     assert.equal(await page.getByRole('button', { name: 'Aprovar e congelar', exact: true }).count(), 1)
-    console.log('PASS checklist approval independent per manual')
+    await until(async () => (await saved()).manuals?.proprietario?.workflow?.statuses?.checklist === 'aprovado', 'owner workflow persisted')
+    await page.reload()
+    await page.getByText('Edição congelada', { exact: true }).waitFor()
+    await page.getByRole('tab', { name: /Manual do Síndico/ }).click()
+    assert.equal(await page.getByText('Edição congelada', { exact: true }).count(), 0)
+    console.log('PASS checklist approval independent per manual and after reload')
 
     // Finishing table is a required section of the owner's manual.
     await pool.query('INSERT INTO finishing_table (id,"developmentId","organizationId",typology,"unitModel",area,data,"lastEditorId") VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [`finish-${suffix}`,id,organizationId,'Tipo A','101','70',{ambientes:[{id:'1',ambiente:'Sala',piso:'PISO_EXCLUSIVO_UNIDADE'}]},userId])
@@ -114,7 +120,7 @@ async function until(check, label) {
     }
     const unauthenticated = await browser.newContext()
     const anonymousResponse = await unauthenticated.request.get(`${origin}/empreendimentos/${id}`)
-    assert.ok(anonymousResponse.url().includes('/sign-in'))
+    assert.ok(anonymousResponse.url().includes('/sign-in') || anonymousResponse.status() >= 400, 'unauthenticated request must not expose the development')
     await unauthenticated.close()
     assert.deepEqual(errors, [])
     await page.screenshot({ path: path.join(output, 'sindico.png'), fullPage: true })

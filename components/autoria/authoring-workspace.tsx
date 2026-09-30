@@ -94,16 +94,15 @@ export function AuthoringWorkspace({ role, developmentId }: { role: "admin" | "e
   const [manual, setManual] = useState<ManualType>(searchParams.get("manual") === "sindico" ? "sindico" : "proprietario")
   const workflowRole: WorkflowRole = role === "admin" ? "admin_dg" : role === "validator" ? "revisor" : "editor"
   const [activeTab, setActiveTab] = useState<SubTabId>("checklist")
-  const [statusesByManual, setStatusesByManual] = useState<Record<ManualType, Record<SubTabId, TabStatus>>>(() => {
-    const saved = development?.manuals as Partial<Record<ManualType, ManualContent>> | undefined
-    return {
-      proprietario: { ...initialStatuses, ...saved?.proprietario?.workflow?.statuses } as Record<SubTabId, TabStatus>,
-      sindico: { ...initialStatuses, ...saved?.sindico?.workflow?.statuses } as Record<SubTabId, TabStatus>,
-    }
-  })
-  const statuses = statusesByManual[manual]
+  const savedStatuses = (development?.manuals?.[manual] as ManualContent | undefined)?.workflow?.statuses
+  const statuses = { ...initialStatuses, ...savedStatuses } as Record<SubTabId, TabStatus>
   function setStatuses(update: (prev: Record<SubTabId, TabStatus>) => Record<SubTabId, TabStatus>) {
-    setStatusesByManual((prev) => ({ ...prev, [manual]: update(prev[manual]) }))
+    const current = useDevelopmentStore.getState().developments[developmentId]
+    const content = (current.manuals?.[manual] ?? {}) as ManualContent
+    const workflow = { ...content.workflow, statuses: update(statuses) }
+    useDevelopmentStore.getState().updateDevelopment(developmentId, { manuals: { ...current.manuals, [manual]: { ...content, workflow } } })
+    void saveDevelopmentModulePath(developmentId, ["manuals", manual, "workflow"], workflow)
+      .catch((error) => setChecklistError(error instanceof Error ? error.message : "Falha ao salvar revisão"))
   }
   const updateDevelopment = useDevelopmentStore((state) => state.updateDevelopment)
   const checklistQueue = useRef(Promise.resolve())

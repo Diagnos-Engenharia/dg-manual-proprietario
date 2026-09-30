@@ -44,7 +44,10 @@ jobs:
           node-version: 22
           cache: pnpm
       - name: Configure isolated authentication
-        run: echo "BETTER_AUTH_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+        run: |
+          PREVIEW_AUTH_SECRET=$(openssl rand -hex 32)
+          echo "::add-mask::$PREVIEW_AUTH_SECRET"
+          echo "BETTER_AUTH_SECRET=$PREVIEW_AUTH_SECRET" >> "$GITHUB_ENV"
       - name: Install and build full PR application
         run: |
           pnpm install --frozen-lockfile

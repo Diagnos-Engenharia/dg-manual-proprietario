@@ -8,7 +8,7 @@ export function usePersistenceStatus<T>(value: T, save: (value: T, expectedUpdat
   const [state, setState] = useState<SaveState>("clean")
   const [error, setError] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState<string | null>(null)
-  const [serverUpdatedAt, setServerUpdatedAt] = useState(options?.updatedAt)
+  const serverUpdatedAt = useRef(options?.updatedAt)
   const latest = useRef(value)
   const saving = useRef(false)
   const savedValue = useRef(value)
@@ -23,9 +23,9 @@ export function usePersistenceStatus<T>(value: T, save: (value: T, expectedUpdat
     try {
       const submitted = latest.current
       submittedValue.current = submitted
-      const result = await save(submitted, serverUpdatedAt)
+      const result = await save(submitted, serverUpdatedAt.current)
       savedValue.current = submitted
-      setServerUpdatedAt(result.updatedAt)
+      serverUpdatedAt.current = result.updatedAt
       setSavedAt(new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }))
       setState("saved")
     } catch (cause) {
@@ -35,7 +35,7 @@ export function usePersistenceStatus<T>(value: T, save: (value: T, expectedUpdat
       saving.current = false
       if (savedValue.current !== latest.current && savedValue.current === submittedValue.current) void persistRef.current()
     }
-  }, [save, serverUpdatedAt])
+  }, [save])
 
   const persistRef = useRef(persist)
   const initialRender = useRef(true)
