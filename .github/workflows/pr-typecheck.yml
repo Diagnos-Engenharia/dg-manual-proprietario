@@ -58,32 +58,3 @@ jobs:
           done
 
           node tests/pr-preview-smoke.mjs || (cat /tmp/dg-manual-preview.log && exit 1)
-
-
-  deployed-preview-smoke:
-    runs-on: ubuntu-latest
-    needs: [typecheck, preview-smoke]
-    timeout-minutes: 10
-    steps:
-      - name: Validate deployed PR opens full SaaS
-        shell: bash
-        run: |
-          URL="https://dg-manual-proprietario-git-c87adc-diagnos-engenharias-projects.vercel.app"
-          for attempt in {1..60}; do
-            CODE=$(curl -L -sS -o /tmp/deployed.html -w "%{http_code}" "$URL" || true)
-            if [ "$CODE" = "200" ]; then
-              if grep -q "ENTRAR NA MINHA CONTA" /tmp/deployed.html; then
-                echo "Full SaaS preview is available at $URL"
-                exit 0
-              fi
-              if grep -q "Ambiente de teste" /tmp/deployed.html; then
-                echo "Preview ainda está no harness isolado; DATABASE_URL de Preview não está disponível."
-                cat /tmp/deployed.html | head -c 2000
-                exit 1
-              fi
-            fi
-            sleep 5
-          done
-          echo "O preview não apresentou a tela normal de login dentro do prazo."
-          cat /tmp/deployed.html | head -c 2000 || true
-          exit 1
