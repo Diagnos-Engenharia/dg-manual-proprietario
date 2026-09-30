@@ -6,6 +6,10 @@ const { Pool } = pg
 const connectionString = process.env.DATABASE_URL
 
 if (!connectionString) {
+  if (process.env.VERCEL_ENV === "preview") {
+    console.log("Preview da Vercel sem DATABASE_URL: migrations ignoradas.")
+    process.exit(0)
+  }
   console.error("DATABASE_URL não está configurada.")
   process.exit(1)
 }
