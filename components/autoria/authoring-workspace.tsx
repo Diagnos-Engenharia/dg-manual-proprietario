@@ -1,13 +1,14 @@
 "use client"
 
 import { useMemo,useRef,useState } from "react"
-import { Boxes,Contact,FileText,History,ListChecks } from "lucide-react"
+import { Boxes,Contact,Droplets,FileText,History,ListChecks } from "lucide-react"
 import { useDevelopmentStore } from "@/lib/store"
 import { linkedSystemItems,type ChecklistItem,type ChecklistStatus,type ChecklistScope } from "@/lib/mock-data"
 import { checklistProgress } from "@/lib/progress"
 import { ChecklistInicial } from "@/components/autoria/checklist-inicial"
 import { ProjetistasFornecedores } from "@/components/autoria/projetistas-fornecedores"
 import { SistemasConstrutivos } from "@/components/autoria/sistemas-construtivos"
+import { Comissionamento } from "@/components/autoria/comissionamento"
 import { TabelaAcabamentos } from "@/components/autoria/tabela-acabamentos"
 import { DevelopmentHistory } from "@/components/autoria/development-history"
 import { Badge } from "@/components/ui/badge"
@@ -16,10 +17,11 @@ import { saveDevelopmentModulePath } from "@/app/actions/developments"
 import { cn } from "@/lib/utils"
 import type { ManualContent } from "@/lib/manual-content"
 
-type SubTabId="checklist"|"sistemas"|"acabamentos"|"contatos"|"historico"
+type SubTabId="checklist"|"sistemas"|"comissionamento"|"acabamentos"|"contatos"|"historico"
 const subTabs=[
   {id:"checklist",label:"Checklist Inicial",icon:ListChecks},
   {id:"sistemas",label:"Sistemas Construtivos",icon:Boxes},
+  {id:"comissionamento",label:"Comissionamento",icon:Droplets},
   {id:"acabamentos",label:"Tabela de Acabamentos",icon:FileText},
   {id:"contatos",label:"Projetistas e Fornecedores",icon:Contact},
   {id:"historico",label:"Histórico",icon:History},
@@ -64,6 +66,7 @@ export function AuthoringWorkspace({role,developmentId}:{role:"admin"|"editor"|"
       {!canEdit&&activeTab!=="historico"&&activeTab!=="sistemas"&&<p className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">Somente leitura.</p>}
       {activeTab==="checklist"&&<><ChecklistInicial items={checklist} onChangeStatus={setStatus} onChangeScopes={setScopes} disabled={!canEdit}/><PersistenceStatus state={checklistError?"error":checklistSaving?"saving":"clean"} savedAt={null} error={checklistError} onRetry={()=>persistChecklist(checklist)}/></>}
       {activeTab==="sistemas"&&<SistemasConstrutivos items={linked} developmentId={developmentId} role={role} initialContents={{unidade:manuals.proprietario?.sistemas??{},comum:manuals.sindico?.sistemas??{}}} initialMaintenance={{unidade:manuals.proprietario?.manutencao??{},comum:manuals.sindico?.manutencao??{}}}/>}
+      {activeTab==="comissionamento"&&<Comissionamento developmentId={developmentId} disabled={!canEdit}/>} 
       {activeTab==="acabamentos"&&<TabelaAcabamentos developmentId={developmentId} disabled={!canEdit} role={role}/>}
       {activeTab==="contatos"&&<ProjetistasFornecedores developmentId={developmentId} disabled={!canEdit}/>}
       {activeTab==="historico"&&<DevelopmentHistory developmentId={developmentId}/>}
