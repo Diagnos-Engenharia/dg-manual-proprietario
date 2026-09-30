@@ -22,6 +22,27 @@ jobs:
             curl -sS -L -o /tmp/body.txt -w "FINAL_URL=%{url_effective}\nHTTP=%{http_code}\nREDIRECTS=%{num_redirects}\nTIME=%{time_total}\n" "$URL"
             grep -o "<title>[^<]*</title>" /tmp/body.txt | head -1 || true
           done
+      - name: Validate auth API health
+        shell: bash
+        run: |
+          echo "--- SESSION ENDPOINT ---"
+          curl -sS -D /tmp/session-headers.txt -o /tmp/session-body.txt -w "HTTP=%{http_code}\n" "https://dg-manual-proprietario.vercel.app/api/auth/get-session"
+          cat /tmp/session-headers.txt
+          cat /tmp/session-body.txt
+          echo
+          echo "--- INVALID SIGN-IN SHOULD FAIL CLEANLY, NOT 500 ---"
+          CODE=$(curl -sS -o /tmp/auth-body.txt -w "%{http_code}" \
+            -H "content-type: application/json" \
+            -d '{"email":"diagnostic-do-not-use@example.invalid","password":"invalid-password-123"}' \
+            "https://dg-manual-proprietario.vercel.app/api/auth/sign-in/email")
+          echo "AUTH_HTTP=$CODE"
+          cat /tmp/auth-body.txt
+          echo
+          if [ "$CODE" -ge 500 ]; then
+            echo "Auth endpoint returned server error"
+            exit 1
+          fi
+
       - name: Install Chromium
         run: |
           npm install --no-save @playwright/test@1.56.1
