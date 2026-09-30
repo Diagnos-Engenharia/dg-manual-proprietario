@@ -23,6 +23,7 @@ import {
   manualLabels,
   computeExecucaoObra,
   linkedSystemItems,
+  checklistItemMatchesScope,
   type TabStatus,
   type ApprovalLog,
   type ManualType,
@@ -96,7 +97,9 @@ export function AuthoringWorkspace({ role, developmentId }: { role: "admin" | "e
   const [logs, setLogs] = useState<ApprovalLog[]>([])
   const checklist = development?.checklist ?? []
   const manualScope = manual === "proprietario" ? "unidade" : "comum"
-  const scopedChecklist = useMemo(() => checklist.filter((item) => item.scope === manualScope), [checklist, manualScope])
+  const scopedChecklist = useMemo(() => checklist.filter((item) => checklistItemMatchesScope(item, manualScope)), [checklist, manualScope])
+  const persistedManual = development?.manuals?.[manual] as { sistemas?: Record<string, string> } | undefined
+  const persistedSystemContents = persistedManual?.sistemas ?? {}
 
   const status = statuses[activeTab]
   const workflowStatus = status as WorkflowState
@@ -112,23 +115,44 @@ export function AuthoringWorkspace({ role, developmentId }: { role: "admin" | "e
   // Itens vinculados que fluem para os Sistemas Construtivos.
   const linked = useMemo(() => linkedSystemItems(scopedChecklist), [scopedChecklist])
 
+  function persistSharedChecklist(nextChecklist: ChecklistItem[]) {
+    void saveDevelopmentModulePath(developmentId, ["checklist"], nextChecklist)
+      .catch((error) => console.error("[v0] Falha ao salvar checklist", error))
+  }
+
   function setStatus(id: string, s: ChecklistStatus) {
     const nextChecklist = checklist.map((item) => item.id === id ? { ...item, status: s } : item)
     updateChecklistItem(developmentId, id, { status: s })
-    void saveDevelopmentModulePath(developmentId, ["manuals", manual, "checklist"], nextChecklist).catch((error) => console.error("[v0] Falha ao salvar checklist", error))
+    persistSharedChecklist(nextChecklist)
+  }
+
+  function setScopes(id: string, scopes: ("unidade" | "comum")[]) {
+    const target = checklist.find((item) => item.id === id)
+    if (!target || scopes.length === 0) return
+    const nextChecklist = checklist.map((item) => item.id === id ? { ...item, scopes } : item)
+    updateChecklistItem(developmentId, id, { scopes })
+    persistSharedChecklist(nextChecklist)
   }
 
   function approve() {
     if (!canApprove) return
     setStatuses((prev) => ({ ...prev, [activeTab]: "aprovado" }))
-    const targetScope = activeTab === "sistemas" ? (manual === "proprietario" ? "unidade" : "comum") : undefined
-    if (activeTab === "checklist" || activeTab === "sistemas") {
-      checklist.filter((item) => item.status === "possui" && (!targetScope || item.scope === targetScope)).forEach((item) => updateChecklistItem(developmentId, item.id, { approvalStatus: "aprovado" }))
+    const targetScope = activeTab === "checklist" || activeTab === "sistemas" ? manualScope : undefined
+    if (targetScope) {
+      checklist
+        .filter((item) => item.status === "possui" && checklistItemMatchesScope(item, targetScope))
+        .forEach((item) => updateChecklistItem(developmentId, item.id, {
+          approvalStatusByScope: { ...item.approvalStatusByScope, [targetScope]: "aprovado" },
+        }))
     }
-    const nextChecklist = checklist.map((item) => item.status === "possui" && (!targetScope || item.scope === targetScope) ? { ...item, approvalStatus: "aprovado" as const } : item)
+    const nextChecklist = checklist.map((item) =>
+      targetScope && item.status === "possui" && checklistItemMatchesScope(item, targetScope)
+        ? { ...item, approvalStatusByScope: { ...item.approvalStatusByScope, [targetScope]: "aprovado" as const } }
+        : item
+    )
     void Promise.all([
       saveDevelopmentModulePath(developmentId, ["manuals", manual, "workflow"], { status: "aprovado", tab: activeTab, assignees, logs: logs.slice(0, 10) }),
-      saveDevelopmentModulePath(developmentId, ["manuals", manual, "checklist"], nextChecklist),
+      saveDevelopmentModulePath(developmentId, ["checklist"], nextChecklist),
     ]).catch((error) => console.error("[v0] Falha ao salvar aprovação", error))
     setLogs((prev) => [
       {
@@ -258,10 +282,10 @@ export function AuthoringWorkspace({ role, developmentId }: { role: "admin" | "e
           {activeTab === "ficha" && <><Badge variant="outline" className="w-fit border-sky-500/30 text-sky-600">Conteúdo compartilhado entre os dois manuais</Badge><FichaTecnica developmentId={developmentId} disabled={isApproved || !canEdit} /></> }
 
           {activeTab === "checklist" && (
-            <ChecklistInicial items={checklist} scope={manualScope} onChangeStatus={setStatus} disabled={isApproved || !canEdit} />
+            <ChecklistInicial items={checklist} scope={manualScope} onChangeStatus={setStatus} onChangeScopes={setScopes} disabled={isApproved || !canEdit} />
           )}
 
-          {activeTab === "sistemas" && <SistemasConstrutivos items={linked} scope={manualScope} disabled={isApproved || !canEdit} developmentId={developmentId} manual={manual} />}
+          {activeTab === "sistemas" && <SistemasConstrutivos key={manual} items={linked} scope={manualScope} disabled={isApproved || !canEdit} developmentId={developmentId} manual={manual} initialContents={persistedSystemContents} />}
 
           {activeTab === "acabamentos" && manual === "proprietario" && <TabelaAcabamentos developmentId={developmentId} disabled={isApproved || !canEdit} role={role} />}
 
