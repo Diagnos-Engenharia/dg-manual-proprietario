@@ -2,13 +2,14 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { KeyRound,Trash2 } from "lucide-react"
+import { AlertTriangle,KeyRound,Trash2 } from "lucide-react"
 import { createPublicApiKey,revokePublicApiKey } from "@/app/actions/public-api-keys"
 import { Card,CardContent,CardHeader,CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
+import { Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle } from "@/components/ui/dialog"
 
 type ApiKey={id:string;name:string;keyPrefix:string;scopes:string[];lastUsedAt:string|null;expiresAt:string|null;createdAt:string}
 
@@ -23,6 +24,7 @@ export function PublicApiPanel({apiKeys}:{apiKeys:ApiKey[]}){
   const [generated,setGenerated]=useState("")
   const [busy,setBusy]=useState(false)
   const [feedback,setFeedback]=useState("")
+  const [revokeTarget,setRevokeTarget]=useState<ApiKey|null>(null)
 
   async function generate(){
     setBusy(true);setFeedback("")
@@ -36,12 +38,13 @@ export function PublicApiPanel({apiKeys}:{apiKeys:ApiKey[]}){
     }finally{setBusy(false)}
   }
 
-  async function revoke(id:string){
-    if(!window.confirm("Revogar esta chave? Sistemas que usam essa credencial deixarão de acessar a API."))return
+  async function revoke(){
+    if(!revokeTarget)return
     setBusy(true);setFeedback("")
     try{
-      await revokePublicApiKey(id)
+      await revokePublicApiKey(revokeTarget.id)
       setFeedback("Chave revogada.")
+      setRevokeTarget(null)
       router.refresh()
     }catch(error){
       setFeedback(error instanceof Error?error.message:"Não foi possível revogar a chave.")
@@ -81,10 +84,35 @@ export function PublicApiPanel({apiKeys}:{apiKeys:ApiKey[]}){
             <p className="mt-1 font-mono text-xs text-muted-foreground">{key.keyPrefix}••••••••</p>
             <p className="mt-1 text-xs text-muted-foreground">Último uso: {formatDate(key.lastUsedAt)} · Criada: {formatDate(key.createdAt)}</p>
           </div>
-          <Button variant="ghost" size="sm" disabled={busy} onClick={()=>void revoke(key.id)}><Trash2 className="h-4 w-4"/>Revogar</Button>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={()=>setRevokeTarget(key)}><Trash2 className="h-4 w-4"/>Revogar</Button>
         </div>)}
       </div>
       {feedback&&<p role="status" className="text-xs text-muted-foreground">{feedback}</p>}
     </CardContent>
+
+    <Dialog open={revokeTarget!==null} onOpenChange={open=>{if(!open&&!busy)setRevokeTarget(null)}}>
+      <DialogContent>
+        <DialogHeader>
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-destructive/10 text-destructive"><AlertTriangle className="h-5 w-5"/></div>
+            <div className="min-w-0">
+              <DialogTitle>Revogar chave de API</DialogTitle>
+              <DialogDescription className="mt-1">Esta ação interrompe imediatamente o acesso de sistemas que usam esta credencial.</DialogDescription>
+            </div>
+          </div>
+        </DialogHeader>
+
+        {revokeTarget&&<div className="rounded-lg border border-border bg-muted/20 p-3">
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">Credencial</p>
+          <p className="mt-1 font-medium">{revokeTarget.name}</p>
+          <p className="mt-1 font-mono text-xs text-muted-foreground">{revokeTarget.keyPrefix}••••••••</p>
+        </div>}
+
+        <DialogFooter>
+          <Button variant="outline" disabled={busy} onClick={()=>setRevokeTarget(null)}>Cancelar</Button>
+          <Button variant="destructive" disabled={busy} onClick={()=>void revoke()}><Trash2 className="h-4 w-4"/>{busy?"Revogando…":"Revogar chave"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </Card>
 }
