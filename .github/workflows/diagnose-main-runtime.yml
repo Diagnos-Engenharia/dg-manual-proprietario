@@ -9,6 +9,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Check available deployment secrets
+        env:
+          DATABASE_URL_SECRET: ${{ secrets.DATABASE_URL }}
+          POSTGRES_URL_SECRET: ${{ secrets.POSTGRES_URL }}
+          VERCEL_TOKEN_SECRET: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID_SECRET: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID_SECRET: ${{ secrets.VERCEL_PROJECT_ID }}
+        shell: bash
+        run: |
+          for VAR in DATABASE_URL_SECRET POSTGRES_URL_SECRET VERCEL_TOKEN_SECRET VERCEL_ORG_ID_SECRET VERCEL_PROJECT_ID_SECRET; do
+            if [ -n "${!VAR}" ]; then echo "$VAR=present"; else echo "$VAR=absent"; fi
+          done
       - uses: actions/setup-node@v4
         with:
           node-version: 22
