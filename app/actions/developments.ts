@@ -89,7 +89,14 @@ export async function saveDevelopmentModulePath(id: string, path: string[], valu
   const conditions = [eq(developments.id, id), eq(developments.organizationId, context.organization.id)]
   if (expectedUpdatedAt) conditions.push(eq(developments.updatedAt, new Date(expectedUpdatedAt)))
   const jsonPath = `{${path.join(",")}}`
-  const result = await db.update(developments).set({ data: sql`jsonb_set(coalesce(${developments.data}, '{}'::jsonb), ${jsonPath}::text[], ${JSON.stringify(value)}::jsonb, true)`, updatedAt: new Date(), lastEditorId: context.user.id, version: sql`${developments.version} + 1` }).where(and(...conditions)).returning({ updatedAt: developments.updatedAt, version: developments.version })
+  // jsonb_set only creates the final key: construct missing ancestors atomically.
+  let nextData = sql`coalesce(${developments.data}, '{}'::jsonb)`
+  for (let depth = 1; depth < path.length; depth++) {
+    const parentPath = `{${path.slice(0, depth).join(",")}}`
+    nextData = sql`jsonb_set(${nextData}, ${parentPath}::text[], coalesce(nullif(${developments.data} #> ${parentPath}::text[], 'null'::jsonb), '{}'::jsonb), true)`
+  }
+  nextData = sql`jsonb_set(${nextData}, ${jsonPath}::text[], ${JSON.stringify(value)}::jsonb, true)`
+  const result = await db.update(developments).set({ data: nextData, updatedAt: new Date(), lastEditorId: context.user.id, version: sql`${developments.version} + 1` }).where(and(...conditions)).returning({ updatedAt: developments.updatedAt, version: developments.version })
   if (!result[0]) throw new Error(expectedUpdatedAt ? "Este conteúdo foi atualizado por outro usuário. Revise as alterações antes de salvar." : "Empreendimento não encontrado")
   await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: "development.path_edited", entityType: "development", entityId: id, metadata: { path, version: result[0].version } })
   revalidatePath(`/empreendimentos/${id}`)

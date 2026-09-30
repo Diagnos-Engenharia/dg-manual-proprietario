@@ -1,6 +1,8 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import { systemGuideline } from "@/lib/manual-content"
+import { useDevelopmentStore } from "@/lib/store"
 import { saveDevelopmentModulePath } from "@/app/actions/developments"
 import { PersistenceStatus, usePersistenceStatus } from "@/hooks/use-persistence-status"
 import {
@@ -35,18 +37,6 @@ const scopeIcon: Record<ChecklistScope, typeof Home> = {
   comum: Building,
 }
 
-// Constrói a diretriz pré-preenchida a partir do item do checklist.
-function buildGuideline(item: ChecklistItem, scope: ChecklistScope): string {
-  const scopes = getChecklistItemScopes(item)
-  if (item.guideline && scopes.length === 1) return item.guideline
-  const observation = scope === "unidade" ? item.obsProprietario : item.obsSindico
-  return `<h2>${item.item}</h2><p>${
-    observation && observation !== "—"
-      ? observation
-      : "Descreva as especificações técnicas deste sistema para este contexto."
-  }</p>`
-}
-
 export function SistemasConstrutivos({
   items,
   disabled,
@@ -54,6 +44,7 @@ export function SistemasConstrutivos({
   developmentId,
   manual,
   initialContents = {},
+  initialMaintenance = {},
 }: {
   items: ChecklistItem[]
   disabled?: boolean
@@ -61,6 +52,7 @@ export function SistemasConstrutivos({
   developmentId?: string
   manual?: "proprietario" | "sindico"
   initialContents?: Record<string, string>
+  initialMaintenance?: Record<string, MaintenanceItem[]>
 }) {
   const scopedItems = useMemo(() => scope ? items.filter((item) => checklistItemMatchesScope(item, scope)) : items, [items, scope])
   const [openScope, setOpenScope] = useState<Record<ChecklistScope, boolean>>({
@@ -69,11 +61,23 @@ export function SistemasConstrutivos({
   })
   const [activeId, setActiveId] = useState<string | null>(scopedItems[0]?.id ?? null)
   const [contents, setContents] = useState<Record<string, string>>(() => initialContents)
+  const [maintenance, setMaintenance] = useState(initialMaintenance)
+  const updateDevelopment = useDevelopmentStore((state) => state.updateDevelopment)
+  function cacheManual(patch: { sistemas?: Record<string, string>; manutencao?: Record<string, MaintenanceItem[]> }) {
+    if (!developmentId) return
+    const current = useDevelopmentStore.getState().developments[developmentId]
+    const manuals = current.manuals ?? {}
+    updateDevelopment(developmentId, { manuals: { ...manuals, [manual ?? "proprietario"]: { ...(manuals[manual ?? "proprietario"] as object ?? {}), ...patch } } })
+  }
   const save = async (value: Record<string, string>) => {
     if (!developmentId) throw new Error("Empreendimento não identificado")
     return saveDevelopmentModulePath(developmentId, ["manuals", manual ?? "proprietario", "sistemas"], value)
   }
-  const persistence = usePersistenceStatus(contents, save)
+  const persistence = usePersistenceStatus(contents, save, { flushOnUnmount: true })
+  const maintenancePersistence = usePersistenceStatus(maintenance, async (value) => {
+    if (!developmentId) throw new Error("Empreendimento não identificado")
+    return saveDevelopmentModulePath(developmentId, ["manuals", manual ?? "proprietario", "manutencao"], value)
+  }, { flushOnUnmount: true })
 
   if (scopedItems.length === 0) {
     return (
@@ -102,7 +106,9 @@ export function SistemasConstrutivos({
   const activeContextKey = checklistItemContextKey(active, activeScope)
 
   function updateContent(html: string) {
-    setContents((prev) => ({ ...prev, [activeContextKey]: html }))
+    const next = { ...contents, [activeContextKey]: html }
+    setContents(next)
+    cacheManual({ sistemas: next })
   }
 
   const ScopeActiveIcon = scopeIcon[activeScope]
@@ -218,16 +224,24 @@ export function SistemasConstrutivos({
           </p>
           <RichTextEditor
             key={activeContextKey}
-            value={contents[activeContextKey] ?? contents[active.id] ?? buildGuideline(active, activeScope)}
+            value={contents[activeContextKey] ?? contents[active.id] ?? systemGuideline(active, activeScope)}
             onChange={updateContent}
             disabled={disabled}
           />
           <div className="mt-2 flex justify-end"><PersistenceStatus state={persistence.state} savedAt={persistence.savedAt} error={persistence.error} onRetry={() => void persistence.persist()} /></div>
         </div>
 
-        {active.maintenance && active.maintenance.length > 0 && (
-          <MaintenanceTable key={activeContextKey} items={active.maintenance} disabled={disabled} />
-        )}
+        <MaintenanceTable
+          items={maintenance[activeContextKey] ?? (active.maintenance ?? []).map((row) => ({ ...row, responsible: activeScope === "unidade" ? "Proprietário" as const : "Síndico" as const }))}
+          disabled={disabled}
+          defaultResponsible={activeScope === "unidade" ? "Proprietário" : "Síndico"}
+          onChange={(rows) => {
+            const next = { ...maintenance, [activeContextKey]: rows }
+            setMaintenance(next)
+            cacheManual({ manutencao: next })
+          }}
+        />
+        <div className="flex justify-end"><PersistenceStatus state={maintenancePersistence.state} savedAt={maintenancePersistence.savedAt} error={maintenancePersistence.error} onRetry={() => void maintenancePersistence.persist()} /></div>
 
         {active.norms.length > 0 && <NormsReference norms={active.norms} />}
       </div>
@@ -235,15 +249,14 @@ export function SistemasConstrutivos({
   )
 }
 
-function MaintenanceTable({ items, disabled }: { items: MaintenanceItem[]; disabled?: boolean }) {
-  const [rows, setRows] = useState<MaintenanceItem[]>(items)
+function MaintenanceTable({ items: rows, disabled, onChange, defaultResponsible }: { items: MaintenanceItem[]; disabled?: boolean; onChange: (rows: MaintenanceItem[]) => void; defaultResponsible: MaintenanceItem["responsible"] }) {
 
   function addRow() {
-    setRows((prev) => [...prev, { task: "", frequency: "", responsible: "Proprietário" }])
+    onChange([...rows, { task: "", frequency: "", responsible: defaultResponsible }])
   }
 
   function update(i: number, patch: Partial<MaintenanceItem>) {
-    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
+    onChange(rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
   }
 
   return (

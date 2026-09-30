@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { useDevelopmentStore } from "@/lib/store"
 import {
@@ -42,6 +42,8 @@ import { Comissionamento } from "@/components/autoria/comissionamento"
 import { TabelaAcabamentos } from "@/components/autoria/tabela-acabamentos"
 import { cn } from "@/lib/utils"
 import { canTransition, type WorkflowRole, type WorkflowState } from "@/lib/workflow"
+import type { ManualContent } from "@/lib/manual-content"
+import { PersistenceStatus } from "@/hooks/use-persistence-status"
 import { saveDevelopmentModulePath } from "@/app/actions/developments"
 
 type SubTabId = "ficha" | "checklist" | "sistemas" | "acabamentos" | "comissionamento" | "contatos"
@@ -92,13 +94,27 @@ export function AuthoringWorkspace({ role, developmentId }: { role: "admin" | "e
   const [manual, setManual] = useState<ManualType>(searchParams.get("manual") === "sindico" ? "sindico" : "proprietario")
   const workflowRole: WorkflowRole = role === "admin" ? "admin_dg" : role === "validator" ? "revisor" : "editor"
   const [activeTab, setActiveTab] = useState<SubTabId>("checklist")
-  const [statuses, setStatuses] = useState<Record<SubTabId, TabStatus>>(initialStatuses)
+  const [statusesByManual, setStatusesByManual] = useState<Record<ManualType, Record<SubTabId, TabStatus>>>(() => {
+    const saved = development?.manuals as Partial<Record<ManualType, ManualContent>> | undefined
+    return {
+      proprietario: { ...initialStatuses, ...saved?.proprietario?.workflow?.statuses } as Record<SubTabId, TabStatus>,
+      sindico: { ...initialStatuses, ...saved?.sindico?.workflow?.statuses } as Record<SubTabId, TabStatus>,
+    }
+  })
+  const statuses = statusesByManual[manual]
+  function setStatuses(update: (prev: Record<SubTabId, TabStatus>) => Record<SubTabId, TabStatus>) {
+    setStatusesByManual((prev) => ({ ...prev, [manual]: update(prev[manual]) }))
+  }
+  const updateDevelopment = useDevelopmentStore((state) => state.updateDevelopment)
+  const checklistQueue = useRef(Promise.resolve())
+  const [checklistSaving, setChecklistSaving] = useState(false)
+  const [checklistError, setChecklistError] = useState<string | null>(null)
   const [assignees] = useState<Record<SubTabId, string[]>>({ ficha: [], checklist: [], sistemas: [], acabamentos: [], comissionamento: [], contatos: [] })
   const [logs, setLogs] = useState<ApprovalLog[]>([])
   const checklist = development?.checklist ?? []
   const manualScope = manual === "proprietario" ? "unidade" : "comum"
   const scopedChecklist = useMemo(() => checklist.filter((item) => checklistItemMatchesScope(item, manualScope)), [checklist, manualScope])
-  const persistedManual = development?.manuals?.[manual] as { sistemas?: Record<string, string> } | undefined
+  const persistedManual = development?.manuals?.[manual] as ManualContent | undefined
   const persistedSystemContents = persistedManual?.sistemas ?? {}
 
   const status = statuses[activeTab]
@@ -116,20 +132,26 @@ export function AuthoringWorkspace({ role, developmentId }: { role: "admin" | "e
   const linked = useMemo(() => linkedSystemItems(scopedChecklist), [scopedChecklist])
 
   function persistSharedChecklist(nextChecklist: ChecklistItem[]) {
-    void saveDevelopmentModulePath(developmentId, ["checklist"], nextChecklist)
-      .catch((error) => console.error("[v0] Falha ao salvar checklist", error))
+    setChecklistSaving(true)
+    setChecklistError(null)
+    checklistQueue.current = checklistQueue.current.catch(() => {}).then(async () => {
+      await saveDevelopmentModulePath(developmentId, ["checklist"], nextChecklist)
+    }).catch((error) => setChecklistError(error instanceof Error ? error.message : "Falha ao salvar checklist"))
+      .finally(() => setChecklistSaving(false))
   }
 
   function setStatus(id: string, s: ChecklistStatus) {
-    const nextChecklist = checklist.map((item) => item.id === id ? { ...item, status: s } : item)
+    const currentChecklist = useDevelopmentStore.getState().developments[developmentId].checklist
+    const nextChecklist = currentChecklist.map((item) => item.id === id ? { ...item, status: s } : item)
     updateChecklistItem(developmentId, id, { status: s })
     persistSharedChecklist(nextChecklist)
   }
 
   function setScopes(id: string, scopes: ("unidade" | "comum")[]) {
-    const target = checklist.find((item) => item.id === id)
+    const currentChecklist = useDevelopmentStore.getState().developments[developmentId].checklist
+    const target = currentChecklist.find((item) => item.id === id)
     if (!target || scopes.length === 0) return
-    const nextChecklist = checklist.map((item) => item.id === id ? { ...item, scopes } : item)
+    const nextChecklist = currentChecklist.map((item) => item.id === id ? { ...item, scopes } : item)
     updateChecklistItem(developmentId, id, { scopes })
     persistSharedChecklist(nextChecklist)
   }
@@ -150,10 +172,12 @@ export function AuthoringWorkspace({ role, developmentId }: { role: "admin" | "e
         ? { ...item, approvalStatusByScope: { ...item.approvalStatusByScope, [targetScope]: "aprovado" as const } }
         : item
     )
-    void Promise.all([
-      saveDevelopmentModulePath(developmentId, ["manuals", manual, "workflow"], { status: "aprovado", tab: activeTab, assignees, logs: logs.slice(0, 10) }),
-      saveDevelopmentModulePath(developmentId, ["checklist"], nextChecklist),
-    ]).catch((error) => console.error("[v0] Falha ao salvar aprovação", error))
+    const workflow = { statuses: { ...statuses, [activeTab]: "aprovado" }, assignees, logs: logs.slice(0, 10) }
+    const current = useDevelopmentStore.getState().developments[developmentId]
+    updateDevelopment(developmentId, { manuals: { ...current.manuals, [manual]: { ...persistedManual, workflow } } })
+    persistSharedChecklist(nextChecklist)
+    void saveDevelopmentModulePath(developmentId, ["manuals", manual, "workflow"], workflow)
+      .catch((error) => setChecklistError(error instanceof Error ? error.message : "Falha ao salvar aprovação"))
     setLogs((prev) => [
       {
         id: `log-${Date.now()}`,
@@ -171,7 +195,7 @@ export function AuthoringWorkspace({ role, developmentId }: { role: "admin" | "e
   return (
     <div className="flex flex-col gap-6">
       {/* Seletor de manual duplo */}
-      <div className="flex flex-wrap items-center justify-between gap-3"><ManualSwitcher value={manual} onChange={setManual} /><Badge variant="outline" className="gap-2">Sessão: {role === "admin" ? "Administrador" : role === "validator" ? "Validador" : "Editor"}</Badge></div>
+      <div className="flex flex-wrap items-center justify-between gap-3"><ManualSwitcher value={manual} onChange={(next) => { if (next === "sindico" && activeTab === "acabamentos") setActiveTab("checklist"); setManual(next) }} /><Badge variant="outline" className="gap-2">Sessão: {role === "admin" ? "Administrador" : role === "validator" ? "Validador" : "Editor"}</Badge></div>
 
       {/* Barra de progresso — Execução da obra (auto pelo checklist) */}
       <Card className="p-4 sm:p-5">
@@ -282,10 +306,10 @@ export function AuthoringWorkspace({ role, developmentId }: { role: "admin" | "e
           {activeTab === "ficha" && <><Badge variant="outline" className="w-fit border-sky-500/30 text-sky-600">Conteúdo compartilhado entre os dois manuais</Badge><FichaTecnica developmentId={developmentId} disabled={isApproved || !canEdit} /></> }
 
           {activeTab === "checklist" && (
-            <ChecklistInicial items={checklist} scope={manualScope} onChangeStatus={setStatus} onChangeScopes={setScopes} disabled={isApproved || !canEdit} />
+            <><ChecklistInicial items={checklist} scope={manualScope} onChangeStatus={setStatus} onChangeScopes={setScopes} disabled={isApproved || !canEdit} /><PersistenceStatus state={checklistError ? "error" : checklistSaving ? "saving" : "clean"} savedAt={null} error={checklistError} onRetry={() => persistSharedChecklist(checklist)} /></>
           )}
 
-          {activeTab === "sistemas" && <SistemasConstrutivos key={manual} items={linked} scope={manualScope} disabled={isApproved || !canEdit} developmentId={developmentId} manual={manual} initialContents={persistedSystemContents} />}
+          {activeTab === "sistemas" && <SistemasConstrutivos key={manual} items={linked} scope={manualScope} disabled={isApproved || !canEdit} developmentId={developmentId} manual={manual} initialContents={persistedSystemContents} initialMaintenance={persistedManual?.manutencao} />}
 
           {activeTab === "acabamentos" && manual === "proprietario" && <TabelaAcabamentos developmentId={developmentId} disabled={isApproved || !canEdit} role={role} />}
 

@@ -1,0 +1,111 @@
+name: Revision 01 - isolated full application preview
+
+on:
+  push:
+    branches: [feature/checklist-dual-scope-integrated]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: revision-01-preview
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 210
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dgpreview
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d dgpreview"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/dgpreview
+      BETTER_AUTH_URL: http://localhost:3000
+      DG_PREVIEW_FILES_DIR: /tmp/dg-preview-files
+      NODE_ENV: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Configure isolated authentication
+        run: echo "BETTER_AUTH_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+      - name: Install and build full PR application
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec tsc --noEmit
+          pnpm build
+      - name: Install browser test tools
+        run: |
+          npm install --prefix /tmp/dg-browser --no-save playwright
+          /tmp/dg-browser/node_modules/.bin/playwright install --with-deps chromium
+          sudo apt-get install -y poppler-utils
+      - name: Verify complete manual separation flow
+        env:
+          PLAYWRIGHT_PACKAGE_PATH: /tmp/dg-browser/node_modules/playwright
+        run: |
+          node_modules/.bin/next start > /tmp/app.log 2>&1 &
+          echo $! > /tmp/app.pid
+          for i in {1..60}; do
+            if curl --fail --silent http://localhost:3000/sign-up > /dev/null; then break; fi
+            sleep 1
+          done
+          node tests/manual-scope.browser.cjs
+          kill "$(cat /tmp/app.pid)"
+          sleep 2
+      - name: Publish temporary isolated preview
+        run: |
+          curl -L --fail --silent --show-error https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /tmp/cloudflared
+          chmod +x /tmp/cloudflared
+          /tmp/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:3000 > /tmp/cloudflared.log 2>&1 &
+          echo $! > /tmp/cloudflared.pid
+          for i in {1..60}; do
+            URL=$(sed -nE 's/.*(https:\/\/[-a-z0-9]+\.trycloudflare\.com).*/\1/p' /tmp/cloudflared.log | head -1)
+            if [ -n "$URL" ]; then break; fi
+            sleep 1
+          done
+          test -n "$URL"
+          BETTER_AUTH_URL="$URL" node_modules/.bin/next start > /tmp/preview-app.log 2>&1 &
+          echo $! > /tmp/preview-app.pid
+          for i in {1..60}; do
+            if curl --fail --silent "$URL/sign-up" > /dev/null; then break; fi
+            sleep 2
+          done
+          curl --fail --silent "$URL/sign-up" > /dev/null
+          echo "PREVIEW_URL=$URL" >> "$GITHUB_ENV"
+          echo "MANUAL_SCOPE_PREVIEW_URL=$URL"
+          echo "## Full application preview" >> "$GITHUB_STEP_SUMMARY"
+          echo "$URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "Commit: $GITHUB_SHA. Isolated PostgreSQL and temporary PDF files. Available for three hours after publication." >> "$GITHUB_STEP_SUMMARY"
+      - name: Verify public preview registration
+        env:
+          PLAYWRIGHT_PACKAGE_PATH: /tmp/dg-browser/node_modules/playwright
+          TEST_BASE_URL: ${{ env.PREVIEW_URL }}
+        run: node tests/manual-scope.browser.cjs
+      - name: Keep preview available for three hours
+        run: |
+          echo "MANUAL_SCOPE_PREVIEW_URL=$PREVIEW_URL"
+          for i in {1..1080}; do
+            kill -0 "$(cat /tmp/preview-app.pid)"
+            kill -0 "$(cat /tmp/cloudflared.pid)"
+            sleep 10
+          done
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          tail -80 /tmp/app.log /tmp/preview-app.log /tmp/cloudflared.log 2>/dev/null || true
