@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 concurrency:
   group: revision-01-preview
@@ -100,6 +101,15 @@ jobs:
           PLAYWRIGHT_PACKAGE_PATH: /tmp/dg-browser/node_modules/playwright
           TEST_BASE_URL: ${{ env.PREVIEW_URL }}
         run: node tests/manual-scope.browser.cjs
+      - name: Register tested preview URL on the PR commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=success \
+            -f context="DG Manual / Preview isolado" \
+            -f description="Navegador, persistência e PDFs aprovados. Preview disponível por 3 horas." \
+            -f target_url="$PREVIEW_URL" > /dev/null
       - name: Keep preview available for three hours
         run: |
           echo "MANUAL_SCOPE_PREVIEW_URL=$PREVIEW_URL"
@@ -108,6 +118,14 @@ jobs:
             kill -0 "$(cat /tmp/cloudflared.pid)"
             sleep 10
           done
+      - name: Mark temporary preview expired
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=error \
+            -f context="DG Manual / Preview isolado" \
+            -f description="Preview temporário encerrado. Execute o workflow novamente para reabrir." > /dev/null
       - name: Diagnostics on failure
         if: failure()
         run: |
