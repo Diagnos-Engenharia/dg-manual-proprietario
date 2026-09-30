@@ -71,6 +71,7 @@ jobs:
           done
           node tests/manual-scope.browser.cjs
           node tests/scoped-access.browser.cjs
+          node tests/system-validation.browser.cjs
           kill "$(cat /tmp/app.pid)"
           sleep 2
       - name: Publish temporary isolated preview
@@ -104,6 +105,7 @@ jobs:
         run: |
           node tests/manual-scope.browser.cjs
           node tests/scoped-access.browser.cjs
+          node tests/system-validation.browser.cjs
       - name: Register tested preview URL on the PR commit
         env:
           GH_TOKEN: ${{ github.token }}
