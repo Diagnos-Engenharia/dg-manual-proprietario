@@ -1,0 +1,35 @@
+name: Diagnose main runtime
+
+on:
+  push:
+    branches: [diagnostic/main-runtime]
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe production URLs
+        shell: bash
+        run: |
+          set +e
+          URLS=(
+            "https://dg-manual-proprietario-git-main-diagnos-engenharias-projects.vercel.app"
+            "https://dg-manual-proprietario.vercel.app"
+          )
+          for URL in "${URLS[@]}"; do
+            echo "============================================================"
+            echo "URL: $URL"
+            echo "--- HEADERS / REDIRECTS ---"
+            curl -sS -L -D /tmp/headers.txt -o /tmp/body.txt -w "\nFINAL_URL=%{url_effective}\nHTTP=%{http_code}\nREDIRECTS=%{num_redirects}\nTIME=%{time_total}\n" "$URL"
+            cat /tmp/headers.txt
+            echo "--- BODY (first 8000 bytes) ---"
+            head -c 8000 /tmp/body.txt
+            echo
+            echo "--- SIGN-IN ---"
+            curl -sS -L -D /tmp/headers-signin.txt -o /tmp/body-signin.txt -w "\nFINAL_URL=%{url_effective}\nHTTP=%{http_code}\nREDIRECTS=%{num_redirects}\nTIME=%{time_total}\n" "$URL/sign-in"
+            cat /tmp/headers-signin.txt
+            echo "--- SIGN-IN BODY (first 4000 bytes) ---"
+            head -c 4000 /tmp/body-signin.txt
+            echo
+          done
