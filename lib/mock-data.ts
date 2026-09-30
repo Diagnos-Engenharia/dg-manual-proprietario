@@ -242,6 +242,10 @@ export type SchedulePhase = {
   scheduledDate: string // ISO — editável, gera revisão
   status: "no_prazo" | "atrasado" | "concluido"
   revisions: Revision[]
+  /** Identificador imutável da etapa nativa. */
+  kind?: "ficha" | "checklist" | "proprietario" | "sindico" | "custom"
+  /** Progresso manual usado somente em etapas adicionais. */
+  progress?: number
 }
 
 export const schedulePhases: SchedulePhase[] = [
