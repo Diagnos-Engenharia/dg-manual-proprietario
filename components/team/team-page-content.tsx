@@ -47,8 +47,9 @@ export function TeamPageContent({members,developments}:{members:Member[];develop
     })
   }
 
-  return <Card><CardHeader className="gap-3 sm:flex-row sm:items-center sm:justify-between"><CardTitle>Equipe e acessos</CardTitle><div className="flex flex-wrap gap-2"><Input aria-label="Pesquisar usuário" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Pesquisar nome ou e-mail" className="sm:w-64"/><Button onClick={()=>setInviteOpen(v=>!v)}>Convidar usuário</Button></div></CardHeader>
+  return <Card><CardHeader><CardTitle>Equipe e acessos</CardTitle></CardHeader>
     <CardContent className="space-y-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center"><Input aria-label="Pesquisar usuário" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Pesquisar nome ou e-mail" className="sm:w-64"/><Button className="sm:ml-auto" onClick={()=>setInviteOpen(v=>!v)}>Convidar usuário</Button></div>
       {inviteOpen&&<div className="grid gap-3 rounded-lg border border-border bg-muted/20 p-4 md:grid-cols-2">
         <div className="space-y-1"><Label>Nome</Label><Input value={invite.name} onChange={e=>setInvite(p=>({...p,name:e.target.value}))}/></div>
         <div className="space-y-1"><Label>E-mail</Label><Input type="email" value={invite.email} onChange={e=>setInvite(p=>({...p,email:e.target.value}))}/></div>
