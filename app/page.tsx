@@ -6,7 +6,7 @@ import { toDashboardDevelopment } from "@/lib/dashboard"
 import { DashboardInsights, DashboardPrioritySummary } from "@/components/dashboard/dashboard-insights"
 
 export default async function DashboardPage() {
-  if (process.env.VERCEL_ENV === "preview" || !process.env.DATABASE_URL) {
+  if (!process.env.DATABASE_URL) {
     redirect("/pr-preview")
   }
 
