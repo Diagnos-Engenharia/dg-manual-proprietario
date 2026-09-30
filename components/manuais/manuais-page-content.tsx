@@ -20,7 +20,7 @@ export function ManuaisPageContent({persisted=[]}:{persisted?:PersistedManualDev
         <Link href={"/empreendimentos/"+item.id+"?modulo=emissao&manual=proprietario"} className="flex items-center justify-between rounded-lg border border-border px-4 py-3 text-sm font-medium hover:border-primary/40 hover:bg-muted/30"><span className="flex items-center gap-2"><BookOpen className="h-4 w-4 text-primary"/>Manual do Proprietário</span><span className="text-primary">Abrir</span></Link>
         <Link href={"/empreendimentos/"+item.id+"?modulo=emissao&manual=sindico"} className="flex items-center justify-between rounded-lg border border-border px-4 py-3 text-sm font-medium hover:border-primary/40 hover:bg-muted/30"><span className="flex items-center gap-2"><BookOpen className="h-4 w-4 text-primary"/>Manual do Síndico</span><span className="text-primary">Abrir</span></Link>
       </div>
-    </div>)}
+    </div>)}</div>
     {!rows.length&&<div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">Nenhum empreendimento encontrado.</div>}
   </div>
 }
