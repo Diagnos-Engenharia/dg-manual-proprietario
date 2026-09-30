@@ -113,11 +113,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh pr comment 2 --repo Diagnos-Engenharia/dg-manual-proprietario --body "### Ambiente integrado da PR #2
-
-Teste aqui: $PREVIEW_URL
-
-Este ambiente executa o código real da branch `feature/checklist-dual-scope-integrated` com PostgreSQL temporário isolado. Nenhum dado de produção é utilizado. O link permanece ativo enquanto esta execução de validação estiver rodando."
+          gh pr comment 2 --repo Diagnos-Engenharia/dg-manual-proprietario --body "Ambiente integrado da PR #2: $PREVIEW_URL — código real da branch feature/checklist-dual-scope-integrated com PostgreSQL temporário isolado; nenhum dado de produção é utilizado."
 
       - name: Keep preview online for validation
         shell: bash
