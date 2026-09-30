@@ -17,8 +17,7 @@ export default async function DashboardPage() {
   const dashboardRows = developments.map(toDashboardDevelopment)
   return (
     <AppShell
-      title="Dashboard de progresso"
-      description="Visão completa da carteira de manuais do proprietário."
+      title="Dashboard"
     >
       <div className="w-full">
         <PortfolioTable developments={dashboardRows} />

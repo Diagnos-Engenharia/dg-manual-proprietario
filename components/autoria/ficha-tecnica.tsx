@@ -34,7 +34,7 @@ export function FichaTecnica({developmentId,disabled}:{developmentId?:string;dis
     }
   }
   return <Card className="p-5">
-    <div className="mb-6 flex items-start gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Building2 className="h-5 w-5"/></span><div><h3 className="font-semibold">Ficha técnica do empreendimento</h3><p className="text-sm text-muted-foreground">Dados reais utilizados na capa, no sumário e na emissão dos manuais.</p></div></div>
+    <div className="mb-6 flex items-center gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Building2 className="h-5 w-5"/></span><h3 className="font-semibold">Ficha técnica do empreendimento</h3></div>
     <div className="grid gap-4 sm:grid-cols-3">
       <div className="space-y-2"><Label htmlFor="towers">Quantidade de torres</Label><Input id="towers" type="number" min="1" value={form.towers} disabled={disabled} onChange={e=>update("towers",e.target.value)}/></div>
       <div className="space-y-2"><Label htmlFor="apartments">Quantidade de apartamentos</Label><Input id="apartments" type="number" min="1" value={form.apartments} disabled={disabled} onChange={e=>update("apartments",e.target.value)}/></div>
@@ -44,6 +44,6 @@ export function FichaTecnica({developmentId,disabled}:{developmentId?:string;dis
       <div className="space-y-2"><Label htmlFor="areas">M² das unidades privativas</Label><Input id="areas" value={form.areas} disabled={disabled} onChange={e=>update("areas",e.target.value)} placeholder="Ex.: 68,40; 74,20; 92,80"/><p className="text-xs text-muted-foreground">Informe as áreas por tipologia.</p></div>
       <div className="space-y-2"><Label htmlFor="completionDate">Finalização do empreendimento</Label><div className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-muted-foreground"/><Input id="completionDate" type="date" value={form.completionDate} disabled={disabled} onChange={e=>update("completionDate",e.target.value)}/></div></div>
     </div>
-    <div className="mt-6 flex items-center justify-between border-t border-border pt-4"><span className="flex items-center gap-2 text-xs text-muted-foreground"><Ruler className="h-3.5 w-3.5"/>Dados utilizados na documentação técnica</span><div className="flex items-center gap-3"><PersistenceStatus state={persistence.state} savedAt={persistence.savedAt} error={persistence.error} onRetry={()=>void persistence.persist()}/><Button disabled={disabled||persistence.isSaving} onClick={()=>void persistence.persist()}><Save className="h-4 w-4"/>Salvar ficha</Button></div></div>
+    <div className="mt-6 flex items-center justify-between border-t border-border pt-4"><span /><div className="flex items-center gap-3"><PersistenceStatus state={persistence.state} savedAt={persistence.savedAt} error={persistence.error} onRetry={()=>void persistence.persist()}/><Button disabled={disabled||persistence.isSaving} onClick={()=>void persistence.persist()}><Save className="h-4 w-4"/>Salvar ficha</Button></div></div>
   </Card>
 }

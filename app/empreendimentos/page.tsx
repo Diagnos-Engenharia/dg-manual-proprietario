@@ -8,7 +8,6 @@ export default async function EmpreendimentosPage() {
   return (
     <AppShell
       title="Empreendimentos"
-      description="Selecione um empreendimento para gerenciar cronograma, elaboração, identidade visual e emissão."
     >
       <EmpreendimentosPageContent persisted={persisted} organizationName={context.organization.name} canCreate={isGlobalAdmin(context.member.role)} />
     </AppShell>
