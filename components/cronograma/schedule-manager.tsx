@@ -96,7 +96,7 @@ export function ScheduleManager({developmentId}:{developmentId?:string}){
       })}</ul>
     </Card>
 
-    <div className="flex w-full flex-wrap items-center justify-start gap-2">
+    <div className="flex w-full flex-wrap items-center justify-end gap-2">
       <Button variant="ghost" onClick={()=>setHistoryOpen(v=>!v)}><ChevronDown className={cn("h-4 w-4 transition-transform",historyOpen&&"rotate-180")}/>Histórico de reprogramações</Button>
       <Button onClick={()=>{setDraft(phases.map(withNativeKind));setConfigOpen(true)}}><Settings2 className="h-4 w-4"/>Ajustar</Button>
     </div>
