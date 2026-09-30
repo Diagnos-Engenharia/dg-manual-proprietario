@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect,useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { AlertTriangle,Check,CheckCircle2,Download,Eye,Loader2,Paperclip,RefreshCw,Send,ShieldCheck } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -14,7 +15,9 @@ const labels:Record<ManualType,string>={proprietario:"Manual do Proprietário",s
 const statusLabels:Record<string,string>={rascunho:"Rascunho",validacao:"Em validação",aprovado:"Aprovado",publicado:"Publicado",substituido:"Substituído"}
 
 export function PdfCompiler({developmentId,role}:{developmentId?:string;role:"admin"|"editor"|"validator"}){
-  const [manual,setManual]=useState<ManualType>("proprietario")
+  const searchParams=useSearchParams()
+  const requestedManual=searchParams.get("manual")==="sindico"?"sindico":"proprietario"
+  const [manual,setManual]=useState<ManualType>(requestedManual)
   const [validation,setValidation]=useState<Validation|null>(null)
   const [versions,setVersions]=useState<Version[]>([])
   const [loading,setLoading]=useState(false)
@@ -40,6 +43,7 @@ export function PdfCompiler({developmentId,role}:{developmentId?:string;role:"ad
     }catch(cause){setError(cause instanceof Error?cause.message:"Não foi possível carregar a emissão.")}
     finally{setLoading(false)}
   }
+  useEffect(()=>{setManual(requestedManual)},[requestedManual])
   useEffect(()=>{void load()},[developmentId,manual])
 
   async function compile(){
