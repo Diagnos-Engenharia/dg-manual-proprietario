@@ -48,6 +48,6 @@ export function RichTextEditor({ value, onChange, disabled, onInsertVariable }: 
       <button type="button" aria-label="Inserir link" title="Inserir link" disabled={disabled} onClick={insertLink} className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-accent disabled:opacity-40"><Link2 className="h-4 w-4" /></button>
       <div className="ml-auto flex items-center gap-1"><span className="text-[10px] uppercase text-muted-foreground">Inserir variável</span><select disabled={disabled} defaultValue="" onChange={(event) => { if (event.target.value) { editor?.chain().focus().insertContent(event.target.value).run(); onInsertVariable?.(event.target.value); event.target.value = "" } }} className="h-8 rounded border border-border bg-background px-1 text-xs"><option value="">Selecionar</option>{supportedVariables.map((variable) => <option key={variable} value={variable}>{variable}</option>)}</select></div>
     </div>
-    <EditorContent editor={editor} className={cn("prose-editor min-h-[280px] max-w-none p-4 text-sm leading-relaxed outline-none", disabled && "cursor-not-allowed opacity-70")} />
+    <EditorContent editor={editor} onClick={(event)=>{if(disabled||!editor)return;if(event.target===event.currentTarget)editor.chain().focus("start").run()}} className={cn("prose-editor min-h-[280px] max-w-none cursor-text p-4 text-sm leading-relaxed outline-none [&_.ProseMirror]:min-h-[248px] [&_.ProseMirror]:outline-none", disabled && "cursor-not-allowed opacity-70")} />
   </div>
 }

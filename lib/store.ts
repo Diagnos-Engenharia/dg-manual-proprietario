@@ -11,6 +11,7 @@ export type DevelopmentRecord = Development & {
   risk: "normal" | "em_risco" | "atrasado"
   authoring?: Record<string, unknown>
   identity?: Record<string, unknown>
+  manuals?: Record<string, unknown>
 }
 
 type Store = {

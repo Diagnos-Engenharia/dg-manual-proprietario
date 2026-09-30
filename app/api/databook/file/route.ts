@@ -5,7 +5,7 @@ import { db } from "@/lib/db"
 import { databookFiles, developments } from "@/lib/db/schema"
 import { eq, and } from "drizzle-orm"
 import { headers } from "next/headers"
-import { requireActiveMembership } from "@/lib/organization"
+import { requireDevelopmentAccess } from "@/lib/organization"
 
 export async function GET(request: NextRequest) {
   const pathname = request.nextUrl.searchParams.get("pathname")
@@ -13,9 +13,9 @@ export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) return NextResponse.json({ error: "Não autenticado" }, { status: 401 })
   try {
-    const context = await requireActiveMembership()
-    const owned = await db.select({ pathname: databookFiles.pathname, name: databookFiles.name }).from(databookFiles).innerJoin(developments, eq(databookFiles.developmentId, developments.id)).where(and(eq(databookFiles.pathname, pathname), eq(developments.organizationId, context.organization.id))).limit(1)
+    const owned = await db.select({ pathname: databookFiles.pathname, name: databookFiles.name,developmentId:databookFiles.developmentId }).from(databookFiles).innerJoin(developments, eq(databookFiles.developmentId, developments.id)).where(and(eq(databookFiles.pathname, pathname), eq(developments.id,databookFiles.developmentId))).limit(1)
     if (!owned[0]) return NextResponse.json({ error: "Arquivo não encontrado" }, { status: 404 })
+    await requireDevelopmentAccess(owned[0].developmentId)
     const result = await get(pathname, { access: "private", ifNoneMatch: request.headers.get("if-none-match") ?? undefined })
     if (!result) return new NextResponse("Arquivo não encontrado", { status: 404 })
     if (result.statusCode === 304) return new NextResponse(null, { status: 304, headers: { ETag: result.blob.etag, "Cache-Control": "private, no-cache" } })

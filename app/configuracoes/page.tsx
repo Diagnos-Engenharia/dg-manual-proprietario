@@ -1,13 +1,23 @@
 import { redirect } from "next/navigation"
-import { updateOrganization } from "@/app/actions/organization"
-import { requireCompanyRole } from "@/lib/organization"
+import { isGlobalAdmin,requireActiveMembership } from "@/lib/organization"
+import { listOrganizationDevelopments,listOrganizationMembers } from "@/app/actions/organization"
+import { listIntegrationStatus } from "@/app/actions/integrations"
+import { listPublicApiKeys } from "@/app/actions/public-api-keys"
 import { AppShell } from "@/components/dashboard/app-shell"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { SettingsWorkspace } from "@/components/settings/settings-workspace"
 
-export default async function SettingsPage() {
-  const context = await requireCompanyRole(["admin", "editor", "validator"])
-  async function save(formData: FormData) { "use server"; await requireCompanyRole(["admin"]); await updateOrganization({ name: String(formData.get("name") || ""), logo: String(formData.get("logo") || ""), initials: String(formData.get("initials") || ""), primaryColor: String(formData.get("color") || "") }); redirect("/configuracoes") }
-  const metadata = context.organization.metadata ? JSON.parse(context.organization.metadata) as Record<string, string> : {}
-  const isAdmin = context.role === "admin"
-  return <AppShell title="Configurações" description="Identidade, integrações e preferências da construtora."><div className="grid gap-6 lg:grid-cols-2"><Card><CardHeader><CardTitle>Dados da construtora</CardTitle><CardDescription>Essas informações aparecem no menu e nos documentos.</CardDescription></CardHeader><CardContent><form action={save} className="space-y-4"><label className="grid gap-2 text-sm font-medium">Nome<input name="name" defaultValue={context.organization.name} disabled={!isAdmin} className="h-10 rounded-md border border-input bg-background px-3 font-normal disabled:opacity-60" /></label><label className="grid gap-2 text-sm font-medium">URL do logotipo<input name="logo" defaultValue={context.organization.logo || ""} disabled={!isAdmin} className="h-10 rounded-md border border-input bg-background px-3 font-normal disabled:opacity-60" /></label><div className="grid gap-4 sm:grid-cols-2"><label className="grid gap-2 text-sm font-medium">Iniciais<input name="initials" maxLength={4} defaultValue={metadata.initials || ""} disabled={!isAdmin} className="h-10 rounded-md border border-input bg-background px-3 font-normal disabled:opacity-60" /></label><label className="grid gap-2 text-sm font-medium">Cor principal<input name="color" type="color" defaultValue={metadata.primaryColor || "#2563eb"} disabled={!isAdmin} className="h-10 w-full rounded-md border border-input bg-background p-1 disabled:opacity-60" /></label></div>{isAdmin ? <button className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground">Salvar identidade</button> : <p className="text-sm text-muted-foreground">Somente Administrador pode editar a identidade.</p>}</form></CardContent></Card><div className="space-y-6"><Card><CardHeader><CardTitle>Logo e identidade visual</CardTitle><CardDescription>Logo, cor e iniciais usadas na navegação.</CardDescription></CardHeader><CardContent><p className="text-sm text-muted-foreground">O logotipo pode ser enviado durante o primeiro acesso. Administradores podem substituir a URL acima.</p></CardContent></Card><Card><CardHeader><CardTitle>API e integrações</CardTitle><CardDescription>Conexões disponíveis para a organização.</CardDescription></CardHeader><CardContent><p className="text-sm text-muted-foreground">Nenhuma integração configurada.</p></CardContent></Card><Card><CardHeader><CardTitle>Preferências e notificações</CardTitle></CardHeader><CardContent><p className="text-sm text-muted-foreground">Preferências de notificações e pesos padrão das etapas serão configuradas nesta organização.</p></CardContent></Card><Card><CardHeader><CardTitle>Informações do sistema</CardTitle></CardHeader><CardContent><p className="text-sm text-muted-foreground">Diagnos · organização {context.organization.id.slice(0, 8)}</p></CardContent></Card></div></div></AppShell>
+export default async function SettingsPage(){
+  const context=await requireActiveMembership()
+  if(!isGlobalAdmin(context.member.role))redirect("/")
+  const [members,developments,integrations,apiKeys]=await Promise.all([listOrganizationMembers(),listOrganizationDevelopments(),listIntegrationStatus(),listPublicApiKeys()])
+  const metadata=context.organization.metadata?JSON.parse(context.organization.metadata) as Record<string,string>:{}
+  return <AppShell title="Informações da construtora">
+    <SettingsWorkspace
+      organization={{name:context.organization.name,logo:context.organization.logo,initials:metadata.initials??"",color:metadata.primaryColor??"#2563eb"}}
+      members={members.map(m=>({...m,createdAt:m.createdAt.toISOString(),lastAccessAt:m.lastAccessAt?.toISOString()??null}))}
+      developments={developments}
+      integrations={integrations}
+      apiKeys={apiKeys}
+    />
+  </AppShell>
 }

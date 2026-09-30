@@ -21,3 +21,8 @@ export async function markNotificationsRead() {
   const userId = await currentUser()
   await db.update(organizationNotifications).set({ readAt: new Date() }).where(and(eq(organizationNotifications.userId, userId), isNull(organizationNotifications.readAt)))
 }
+
+export async function markNotificationRead(id: string) {
+  const userId = await currentUser()
+  await db.update(organizationNotifications).set({ readAt: new Date() }).where(and(eq(organizationNotifications.id, id), eq(organizationNotifications.userId, userId)))
+}
