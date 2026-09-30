@@ -70,6 +70,7 @@ jobs:
             sleep 1
           done
           node tests/manual-scope.browser.cjs
+          node tests/scoped-access.browser.cjs
           kill "$(cat /tmp/app.pid)"
           sleep 2
       - name: Publish temporary isolated preview
@@ -100,7 +101,9 @@ jobs:
         env:
           PLAYWRIGHT_PACKAGE_PATH: /tmp/dg-browser/node_modules/playwright
           TEST_BASE_URL: ${{ env.PREVIEW_URL }}
-        run: node tests/manual-scope.browser.cjs
+        run: |
+          node tests/manual-scope.browser.cjs
+          node tests/scoped-access.browser.cjs
       - name: Register tested preview URL on the PR commit
         env:
           GH_TOKEN: ${{ github.token }}
