@@ -29,7 +29,7 @@ try {
   await page.getByText("Checklist Inicial", { exact: true }).first().waitFor({ state: "visible" })
   await page.getByText("Sistemas Construtivos", { exact: true }).first().waitFor({ state: "visible" })
 
-  await page.getByText("Porta pronta da unidade", { exact: true }).waitFor({ state: "visible" })
+  await page.getByText("Porta pronta da unidade", { exact: true }).first().waitFor({ state: "visible" })
   if (await page.getByText("Porta corta-fogo", { exact: true }).count()) {
     throw new Error("Item exclusivo de área comum apareceu no Manual do Proprietário")
   }
