@@ -1053,7 +1053,10 @@ export type ChecklistItem = {
   id: string
   category: string
   item: string
+  /** Escopo legado. Mantido para compatibilidade com checklists existentes. */
   scope: ChecklistScope
+  /** Um item pode atender unidade, áreas comuns ou ambos os contextos. */
+  scopes?: ChecklistScope[]
   status: ChecklistStatus
   approvalStatus?: "rascunho" | "em_revisao" | "aprovado"
   obsProprietario: string
@@ -1340,6 +1343,19 @@ export function computeExecucaoObra(items: ChecklistItem[]): number {
 // Itens que fluem para a aba Sistemas Construtivos (marcados/ em andamento).
 export function linkedSystemItems(items: ChecklistItem[]): ChecklistItem[] {
   return items.filter((i) => i.status === "possui")
+}
+
+export function getChecklistItemScopes(item: ChecklistItem): ChecklistScope[] {
+  const scopes = item.scopes?.filter((scope, index, list) => list.indexOf(scope) === index) ?? []
+  return scopes.length > 0 ? scopes : [item.scope]
+}
+
+export function checklistItemMatchesScope(item: ChecklistItem, scope: ChecklistScope): boolean {
+  return getChecklistItemScopes(item).includes(scope)
+}
+
+export function checklistItemContextKey(item: ChecklistItem, scope: ChecklistScope): string {
+  return `${item.id}::${scope}`
 }
 
 export const scopeLabels: Record<ChecklistScope, string> = {
