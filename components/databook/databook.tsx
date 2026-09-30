@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react"
 import JSZip from "jszip"
-import { Archive, ChevronRight, Download, FileText, Folder, FolderPlus, Pencil, Plus, Search, Trash2, Upload } from "lucide-react"
+import { Archive, Download, FileText, Folder, FolderPlus, Pencil, Plus, Search, Trash2, Upload } from "lucide-react"
 import { databookCategories, databookDocs as initialDocs, formatDateTime, formatFileSize, type DatabookDoc } from "@/lib/mock-data"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -57,7 +57,7 @@ export function Databook({ developmentId: _developmentId, persistedFiles }: { de
         if (!response.ok) throw new Error("Falha no upload")
         const result = await response.json() as { pathname: string }
         const dot = file.name.lastIndexOf(".")
-        return { id: `db-${Date.now()}-${index}`, name: dot > 0 ? file.name.slice(0, dot) : file.name, category: folder.name, ext: dot > 0 ? file.name.slice(dot + 1).toLowerCase() : "bin", sizeKB: Math.max(1, Math.round(file.size / 1024)), uploadedAt: new Date().toISOString(), uploadedBy: "Rafael Gomes", pathname: result.pathname }
+        return { id: `db-${Date.now()}-${index}`, name: dot > 0 ? file.name.slice(0, dot) : file.name, category: folder.name, ext: dot > 0 ? file.name.slice(dot + 1).toLowerCase() : "bin", sizeKB: Math.max(1, Math.round(file.size / 1024)), uploadedAt: new Date().toISOString(), uploadedBy: "Usuário autenticado", pathname: result.pathname }
       }))
       setDocs((current) => [...additions, ...current])
     } catch (uploadError) {
@@ -112,7 +112,7 @@ export function Databook({ developmentId: _developmentId, persistedFiles }: { de
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement("a")
     anchor.href = url
-    anchor.download = "DATABOOK_Residencial_Aurora.zip"
+    anchor.download = "DATABOOK.zip"
     anchor.click()
     URL.revokeObjectURL(url)
   }

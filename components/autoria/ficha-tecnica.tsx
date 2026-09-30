@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Building2, CalendarDays, Ruler, Save } from "lucide-react"
+import { Building2, CalendarDays, Save } from "lucide-react"
 import { useDevelopmentStore } from "@/lib/store"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
