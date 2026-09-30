@@ -1,17 +1,20 @@
 import { redirect } from "next/navigation"
 import { headers } from "next/headers"
-import { auth } from "@/lib/auth"
 import { AppShell } from "@/components/dashboard/app-shell"
 import { PortfolioTable } from "@/components/dashboard/portfolio-table"
-import { listDevelopments } from "@/app/actions/developments"
-import { getActiveMembership } from "@/lib/organization"
 import { toDashboardDevelopment } from "@/lib/dashboard"
 import { DashboardInsights, DashboardPrioritySummary } from "@/components/dashboard/dashboard-insights"
 
 export default async function DashboardPage() {
-  if (process.env.VERCEL_ENV === "preview") {
+  if (process.env.VERCEL_ENV === "preview" || !process.env.DATABASE_URL) {
     redirect("/pr-preview")
   }
+
+  const [{ auth }, { listDevelopments }, { getActiveMembership }] = await Promise.all([
+    import("@/lib/auth"),
+    import("@/app/actions/developments"),
+    import("@/lib/organization"),
+  ])
 
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) redirect("/sign-in")
