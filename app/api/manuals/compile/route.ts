@@ -6,13 +6,13 @@ import { NextResponse } from "next/server"
 import { and, desc, eq } from "drizzle-orm"
 import { db } from "@/lib/db"
 import { developments, databookFiles, finishingTables, manualVersions } from "@/lib/db/schema"
-import { recordAudit, requireCompanyRole } from "@/lib/organization"
+import { recordAudit, requireDevelopmentRole } from "@/lib/organization"
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({})) as { developmentId?: string; manualType?: string; comment?: string }
   if (!body.developmentId) return NextResponse.json({ error: "Empreendimento não informado" }, { status: 400 })
   const manualType = body.manualType === "sindico" ? "sindico" : "proprietario"
-  const context = await requireCompanyRole(["admin", "editor", "validator"])
+  const context = await requireDevelopmentRole(body.developmentId,["admin","admin_empreendimento","editor"])
   const row = await db.select({ id: developments.id, name: developments.name, organizationId: developments.organizationId, data: developments.data }).from(developments).where(and(eq(developments.id, body.developmentId), eq(developments.organizationId, context.organization.id))).limit(1)
   if (!row[0]) return NextResponse.json({ error: "Empreendimento não encontrado" }, { status: 404 })
   const existing = await db.select({ revision: manualVersions.revision }).from(manualVersions).where(and(eq(manualVersions.developmentId, body.developmentId), eq(manualVersions.manualType, manualType))).orderBy(desc(manualVersions.revision)).limit(1)

@@ -4,13 +4,13 @@ import { NextResponse } from "next/server"
 import { and, eq } from "drizzle-orm"
 import { db } from "@/lib/db"
 import { developments, databookFiles, finishingTables } from "@/lib/db/schema"
-import { requireActiveMembership } from "@/lib/organization"
+import { requireDevelopmentAccess } from "@/lib/organization"
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({})) as { developmentId?: string; manualType?: string }
   if (!body.developmentId) return NextResponse.json({ error: "Empreendimento não informado" }, { status: 400 })
   const manualType = body.manualType === "sindico" ? "sindico" : "proprietario"
-  const context = await requireActiveMembership()
+  const context = await requireDevelopmentAccess(body.developmentId)
   const row = await db.select({ id: developments.id, name: developments.name, data: developments.data, workflowStatus: developments.workflowStatus }).from(developments).where(and(eq(developments.id, body.developmentId), eq(developments.organizationId, context.organization.id))).limit(1)
   if (!row[0]) return NextResponse.json({ error: "Empreendimento não encontrado" }, { status: 404 })
   const data = (row[0].data ?? {}) as Record<string, unknown>
