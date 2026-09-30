@@ -60,7 +60,9 @@ export async function testIntegration(provider:Provider){
   const key=unseal(row[0].encryptedKey)
   try {
     const target=provider==="openai"?"https://api.openai.com/v1/models":"https://generativelanguage.googleapis.com/v1beta/models"
-    const headers=provider==="openai"?{Authorization:"Bearer "+key}:{"x-goog-api-key":key}
+    const headers=new Headers()
+    if(provider==="openai")headers.set("Authorization","Bearer "+key)
+    else headers.set("x-goog-api-key",key)
     const response=await fetch(target,{method:"GET",headers,signal:AbortSignal.timeout(8000),cache:"no-store"})
     const verified=response.ok
     await db.update(organizationIntegrations).set({status:verified?"verified":"error",testedAt:new Date(),updatedAt:new Date()}).where(eq(organizationIntegrations.id,row[0].id))
