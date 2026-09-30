@@ -4,6 +4,11 @@ on:
   push:
     branches: [diagnostic/main-runtime]
 
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
 jobs:
   preview:
     runs-on: ubuntu-latest
@@ -102,6 +107,17 @@ jobs:
           curl -sS "$PREVIEW_URL/api/auth/get-session" -o /tmp/session.json
           echo "Auth endpoint: $(cat /tmp/session.json)"
           echo "PR2_PREVIEW_URL=$PREVIEW_URL"
+
+      - name: Publish preview URL to PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh pr comment 2 --repo Diagnos-Engenharia/dg-manual-proprietario --body "### Ambiente integrado da PR #2
+
+Teste aqui: $PREVIEW_URL
+
+Este ambiente executa o código real da branch `feature/checklist-dual-scope-integrated` com PostgreSQL temporário isolado. Nenhum dado de produção é utilizado. O link permanece ativo enquanto esta execução de validação estiver rodando."
 
       - name: Keep preview online for validation
         shell: bash
