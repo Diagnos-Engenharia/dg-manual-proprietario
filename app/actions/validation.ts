@@ -20,8 +20,8 @@ export type ContentSection="sistemas"|"manutencao"
 async function transition(id:string,next:ValidationStatus,comment?:string){
   const context=await requireDevelopmentAccess(id)
   const role=context.developmentRole
-  if(["rascunho","em_elaboracao","ajustes_solicitados","reenviado"].includes(next)&&!canEditContent(role))throw new Error("Somente administradores e editores podem alterar o conteúdo")
-  if(["aguardando_validacao","aprovado","publicado"].includes(next)&&!canValidateContent(role))throw new Error("Somente administradores e validadores podem validar")
+  if(["rascunho","em_elaboracao","aguardando_validacao","reenviado","arquivado"].includes(next)&&!canEditContent(role))throw new Error("Somente administradores e editores podem alterar o conteúdo")
+  if(["ajustes_solicitados","aprovado","publicado"].includes(next)&&!canValidateContent(role))throw new Error("Somente administradores e validadores podem validar")
   if(next==="aprovado"&&context.development.lastEditorId===context.user.id)throw new Error("Quem editou por último não pode aprovar o próprio conteúdo")
   const version=context.development.version
   await db.update(developments).set({workflowStatus:next,...(next==="aprovado"?{approvedVersion:version,approvedBy:context.user.id,approvedAt:new Date()}:{}),updatedAt:new Date()}).where(and(eq(developments.id,id),eq(developments.organizationId,context.organization.id)))
@@ -83,6 +83,7 @@ async function decideContentValidation(input:{developmentId:string;contextKey:st
   const context=await requireDevelopmentRole(input.developmentId,["admin","admin_empreendimento","validator"])
   const existing=await getContentValidation(input.developmentId,context.organization.id,input.contextKey,input.section)
   if(!existing||existing.status!=="aguardando_validacao")throw new Error("Este conteúdo não está aguardando validação")
+  if(input.decision==="aprovado"&&existing.lastEditorId===context.user.id)throw new Error("Quem enviou o conteúdo não pode aprovar a própria edição. Solicite a validação de outro usuário.")
   if(input.decision==="reprovado"&&!input.comment?.trim())throw new Error("Informe o motivo da reprovação")
   await db.update(developmentContentValidations).set({status:input.decision,validatorId:context.user.id,comment:input.comment?.trim()||null,updatedAt:new Date()}).where(eq(developmentContentValidations.id,existing.id))
   if(existing.lastEditorId)await db.insert(organizationNotifications).values({id:crypto.randomUUID(),organizationId:context.organization.id,userId:existing.lastEditorId,type:input.decision==="aprovado"?"validation_approved":"validation_rejected",title:input.decision==="aprovado"?"Item validado":"Ajustes solicitados",body:input.label+" · "+(input.section==="sistemas"?"Descrição técnica":"Manutenção preventiva")+(input.comment?" · "+input.comment:"")})

@@ -5,7 +5,6 @@ import { useDevelopmentStore } from "@/lib/store"
 import { saveDevelopmentModulePath } from "@/app/actions/developments"
 import {
   listSystemValidationStates,
-  markSystemItemEdited,
   rejectSystemItem,
   submitSystemItemForValidation,
   validateSystemItem,
@@ -104,7 +103,6 @@ export function SistemasConstrutivos({
     const current=statusFor(validations,key,section)
     if(current==="rascunho")return
     setValidations(rows=>rows.map(row=>row.contextKey===key&&row.section===section?{...row,status:"rascunho",comment:null}:row))
-    void markSystemItemEdited({developmentId,contextKey:key,section}).catch(()=>void loadValidations())
   }
   function updateContent(html:string){
     markEdited("sistemas")
@@ -143,13 +141,13 @@ export function SistemasConstrutivos({
       <section className="space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div><h3 className="text-lg font-semibold">{item.item}</h3>{item.norms.length>0&&<div className="mt-2 flex flex-wrap gap-1.5">{item.norms.map(code=><Badge key={code} variant="outline" title={nbrNorms[code]} className="gap-1 border-primary/30 bg-primary/5"><BookMarked className="h-3 w-3 text-primary"/><span className="font-mono">{code}</span></Badge>)}</div>}</div>
-          <ValidationActions developmentId={developmentId} contextKey={key} section="sistemas" label={item.item} role={role} status={status("sistemas")} comment={comment("sistemas")} onDone={loadValidations}/>
+          <ValidationActions key={key+"-sistemas"} developmentId={developmentId} contextKey={key} section="sistemas" label={item.item} role={role} status={status("sistemas")} comment={comment("sistemas")} beforeSend={contentPersistence.flush} onDone={loadValidations}/>
         </div>
         <div><p className="mb-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">Descrição técnica</p><RichTextEditor key={"content-"+key} value={contents[scope][key]??contents[scope][item.id]??""} onChange={updateContent} disabled={!canEdit}/><div className="mt-2 flex justify-end"><PersistenceStatus state={contentPersistence.state} savedAt={contentPersistence.savedAt} error={contentPersistence.error} onRetry={()=>void contentPersistence.persist()}/></div></div>
       </section>
 
       <section className="space-y-3 border-t border-border pt-5">
-        <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="flex items-center gap-2 text-sm font-semibold"><Wrench className="h-4 w-4 text-primary"/>Manutenção preventiva</h3><ValidationActions developmentId={developmentId} contextKey={key} section="manutencao" label={item.item} role={role} status={status("manutencao")} comment={comment("manutencao")} onDone={loadValidations}/></div>
+        <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="flex items-center gap-2 text-sm font-semibold"><Wrench className="h-4 w-4 text-primary"/>Manutenção preventiva</h3><ValidationActions key={key+"-manutencao"} developmentId={developmentId} contextKey={key} section="manutencao" label={item.item} role={role} status={status("manutencao")} comment={comment("manutencao")} beforeSend={maintenancePersistence.flush} onDone={loadValidations}/></div>
         <MaintenanceTable items={maintenance[scope][key]??(item.maintenance??[]).map(row=>({...row,responsible:scope==="unidade"?"Proprietário" as const:"Síndico" as const}))} disabled={!canEdit} defaultResponsible={scope==="unidade"?"Proprietário":"Síndico"} onChange={updateMaintenance}/>
         <div className="flex justify-end"><PersistenceStatus state={maintenancePersistence.state} savedAt={maintenancePersistence.savedAt} error={maintenancePersistence.error} onRetry={()=>void maintenancePersistence.persist()}/></div>
       </section>
@@ -160,10 +158,10 @@ export function SistemasConstrutivos({
 
 function statusFor(rows:ValidationRow[],contextKey:string,section:ContentSection):ContentValidationStatus{return rows.find(row=>row.contextKey===contextKey&&row.section===section)?.status??"rascunho"}
 
-function ValidationActions({developmentId,contextKey,section,label,role,status,comment,onDone}:{developmentId:string;contextKey:string;section:ContentSection;label:string;role:"admin"|"editor"|"validator";status:ContentValidationStatus;comment:string|null;onDone:()=>Promise<void>}){
+function ValidationActions({developmentId,contextKey,section,label,role,status,comment,beforeSend,onDone}:{developmentId:string;contextKey:string;section:ContentSection;label:string;role:"admin"|"editor"|"validator";status:ContentValidationStatus;comment:string|null;beforeSend:()=>Promise<void>;onDone:()=>Promise<void>}){
   const [busy,setBusy]=useState(false)
   const [error,setError]=useState<string|null>(null)
-  const send=async()=>{setBusy(true);setError(null);try{await submitSystemItemForValidation({developmentId,contextKey,section,label});await onDone()}catch(e){setError(e instanceof Error?e.message:"Falha ao enviar")}finally{setBusy(false)}}
+  const send=async()=>{setBusy(true);setError(null);try{await beforeSend();await submitSystemItemForValidation({developmentId,contextKey,section,label});await onDone()}catch(e){setError(e instanceof Error?e.message:"Falha ao enviar")}finally{setBusy(false)}}
   const approve=async()=>{setBusy(true);setError(null);try{await validateSystemItem({developmentId,contextKey,section,label});await onDone()}catch(e){setError(e instanceof Error?e.message:"Falha ao validar")}finally{setBusy(false)}}
   const reject=async()=>{const reason=window.prompt("Motivo da reprovação");if(!reason?.trim())return;setBusy(true);setError(null);try{await rejectSystemItem({developmentId,contextKey,section,label,comment:reason});await onDone()}catch(e){setError(e instanceof Error?e.message:"Falha ao reprovar")}finally{setBusy(false)}}
   const canSend=role==="editor"||role==="admin"

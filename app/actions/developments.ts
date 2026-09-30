@@ -1,7 +1,7 @@
 'use server'
 
 import { db } from '@/lib/db'
-import { auditLogs, databookFiles, developments, finishingTableHistory, finishingTables, user } from '@/lib/db/schema'
+import { auditLogs, databookFiles, developmentContentValidations, developments, finishingTableHistory, finishingTables, user } from '@/lib/db/schema'
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { isGlobalAdmin, permittedDevelopmentIds, recordAudit, requireActiveMembership, requireCompanyRole, requireDevelopmentAccess, requireDevelopmentRole } from '@/lib/organization'
@@ -124,7 +124,16 @@ export async function saveDevelopmentModulePath(id: string, path: string[], valu
     nextData = sql`jsonb_set(${nextData}, ${parentPath}::text[], coalesce(nullif(${developments.data} #> ${parentPath}::text[], 'null'::jsonb), '{}'::jsonb), true)`
   }
   nextData = sql`jsonb_set(${nextData}, ${jsonPath}::text[], ${JSON.stringify(value)}::jsonb, true)`
-  const result = await db.update(developments).set({ data: nextData, updatedAt: new Date(), lastEditorId: context.user.id, version: sql`${developments.version} + 1` }).where(and(...conditions)).returning({ updatedAt: developments.updatedAt, version: developments.version })
+  const result = await db.transaction(async tx => {
+    const saved = await tx.update(developments).set({ data: nextData, updatedAt: new Date(), lastEditorId: context.user.id, version: sql`${developments.version} + 1` }).where(and(...conditions)).returning({ updatedAt: developments.updatedAt, version: developments.version })
+    if (saved[0] && path[0] === "manuals" && ["sistemas", "manutencao"].includes(path[2])) {
+      const before = (previous ?? {}) as Record<string, unknown>
+      const after = (value ?? {}) as Record<string, unknown>
+      const keys = Array.from(new Set([...Object.keys(before), ...Object.keys(after)])).filter(key => JSON.stringify(before[key]) !== JSON.stringify(after[key]))
+      if (keys.length) await tx.update(developmentContentValidations).set({ status: "rascunho", lastEditorId: context.user.id, validatorId: null, comment: null, updatedAt: new Date() }).where(and(eq(developmentContentValidations.developmentId, id), eq(developmentContentValidations.organizationId, context.organization.id), eq(developmentContentValidations.section, path[2]), inArray(developmentContentValidations.contextKey, keys)))
+    }
+    return saved
+  })
   if (!result[0]) throw new Error(expectedUpdatedAt ? "Este conteúdo foi atualizado por outro usuário. Revise as alterações antes de salvar." : "Empreendimento não encontrado")
   for (const change of auditChanges(previous,value,path)) await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: "development.path_edited", entityType: "development", entityId: id, metadata: { ...change, version: result[0].version } })
   revalidatePath(`/empreendimentos/${id}`)
