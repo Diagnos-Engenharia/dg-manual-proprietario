@@ -120,6 +120,10 @@ export function SistemasConstrutivos({
   }
   const status=(section:ContentSection)=>validations.find(row=>row.contextKey===key&&row.section===section)?.status??"rascunho"
   const comment=(section:ContentSection)=>validations.find(row=>row.contextKey===key&&row.section===section)?.comment??null
+  const technicalStatus=status("sistemas")
+  const maintenanceStatus=status("manutencao")
+  const technicalLocked=technicalStatus==="aguardando_validacao"
+  const maintenanceLocked=maintenanceStatus==="aguardando_validacao"
 
   return <div className="grid gap-5 lg:grid-cols-[300px_1fr]">
     <Card className="h-fit p-2">
@@ -141,17 +145,18 @@ export function SistemasConstrutivos({
 
     <div className="min-w-0 space-y-6">
       <section className="space-y-3">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div><h3 className="text-lg font-semibold">{item.item}</h3>{item.norms.length>0&&<div className="mt-2 flex flex-wrap gap-1.5">{item.norms.map(code=><Badge key={code} variant="outline" title={nbrNorms[code]} className="gap-1 border-primary/30 bg-primary/5"><BookMarked className="h-3 w-3 text-primary"/><span className="font-mono">{code}</span></Badge>)}</div>}</div>
-          <ValidationActions key={key+"-sistemas"} developmentId={developmentId} contextKey={key} section="sistemas" label={item.item} role={role} status={status("sistemas")} comment={comment("sistemas")} beforeSend={contentPersistence.flush} onDone={loadValidations}/>
+        <div><h3 className="text-lg font-semibold">{item.item}</h3>{item.norms.length>0&&<div className="mt-2 flex flex-wrap gap-1.5">{item.norms.map(code=><Badge key={code} variant="outline" title={nbrNorms[code]} className="gap-1 border-primary/30 bg-primary/5"><BookMarked className="h-3 w-3 text-primary"/><span className="font-mono">{code}</span></Badge>)}</div>}</div>
+        <div>
+          <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Descrição técnica</p><ValidationStatusBadge status={technicalStatus}/></div>
+          <div className={cn("transition-opacity",technicalLocked&&"opacity-60")}><RichTextEditor key={"content-"+key} value={contents[scope][key]??contents[scope][item.id]??""} onChange={updateContent} disabled={!canEdit||technicalLocked}/></div>
+          <div className="mt-2 flex flex-wrap items-start justify-between gap-3"><div className="min-h-5"><PersistenceStatus state={contentPersistence.state} savedAt={contentPersistence.savedAt} error={contentPersistence.error} onRetry={()=>void contentPersistence.persist()}/></div><ValidationActions key={key+"-sistemas"} developmentId={developmentId} contextKey={key} section="sistemas" label={item.item} role={role} status={technicalStatus} comment={comment("sistemas")} beforeSend={contentPersistence.flush} onDone={loadValidations}/></div>
         </div>
-        <div><p className="mb-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">Descrição técnica</p><RichTextEditor key={"content-"+key} value={contents[scope][key]??contents[scope][item.id]??""} onChange={updateContent} disabled={!canEdit}/><div className="mt-2 flex justify-end"><PersistenceStatus state={contentPersistence.state} savedAt={contentPersistence.savedAt} error={contentPersistence.error} onRetry={()=>void contentPersistence.persist()}/></div></div>
       </section>
 
       <section className="space-y-3 border-t border-border pt-5">
-        <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="flex items-center gap-2 text-sm font-semibold"><Wrench className="h-4 w-4 text-primary"/>Manutenção preventiva</h3><ValidationActions key={key+"-manutencao"} developmentId={developmentId} contextKey={key} section="manutencao" label={item.item} role={role} status={status("manutencao")} comment={comment("manutencao")} beforeSend={maintenancePersistence.flush} onDone={loadValidations}/></div>
-        <MaintenanceTable items={maintenance[scope][key]??(item.maintenance??[]).map(row=>({...row,responsible:scope==="unidade"?"Proprietário" as const:"Síndico" as const}))} disabled={!canEdit} defaultResponsible={scope==="unidade"?"Proprietário":"Síndico"} onChange={updateMaintenance}/>
-        <div className="flex justify-end"><PersistenceStatus state={maintenancePersistence.state} savedAt={maintenancePersistence.savedAt} error={maintenancePersistence.error} onRetry={()=>void maintenancePersistence.persist()}/></div>
+        <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="flex items-center gap-2 text-sm font-semibold"><Wrench className="h-4 w-4 text-primary"/>Manutenção preventiva</h3><ValidationStatusBadge status={maintenanceStatus}/></div>
+        <div className={cn("transition-opacity",maintenanceLocked&&"opacity-60")}><MaintenanceTable items={maintenance[scope][key]??(item.maintenance??[]).map(row=>({...row,responsible:scope==="unidade"?"Proprietário" as const:"Síndico" as const}))} disabled={!canEdit||maintenanceLocked} defaultResponsible={scope==="unidade"?"Proprietário":"Síndico"} onChange={updateMaintenance}/></div>
+        <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-h-5"><PersistenceStatus state={maintenancePersistence.state} savedAt={maintenancePersistence.savedAt} error={maintenancePersistence.error} onRetry={()=>void maintenancePersistence.persist()}/></div><ValidationActions key={key+"-manutencao"} developmentId={developmentId} contextKey={key} section="manutencao" label={item.item} role={role} status={maintenanceStatus} comment={comment("manutencao")} beforeSend={maintenancePersistence.flush} onDone={loadValidations}/></div>
       </section>
       {validationError&&<p className="text-sm text-destructive">{validationError}</p>}
     </div>
@@ -160,21 +165,28 @@ export function SistemasConstrutivos({
 
 function statusFor(rows:ValidationRow[],contextKey:string,section:ContentSection):ContentValidationStatus{return rows.find(row=>row.contextKey===contextKey&&row.section===section)?.status??"rascunho"}
 
+function ValidationStatusBadge({status}:{status:ContentValidationStatus}){
+  if(status==="aprovado")return <Badge className="gap-1 bg-success/10 text-success"><Check className="h-3 w-3"/>Aprovado</Badge>
+  if(status==="aguardando_validacao")return <Badge variant="outline" className="gap-1 border-warning/40 bg-warning/10 text-warning"><Clock3 className="h-3 w-3"/>Aguardando validação</Badge>
+  if(status==="reprovado")return <Badge variant="outline" className="gap-1 border-destructive/30 bg-destructive/5 text-destructive"><X className="h-3 w-3"/>Reprovado</Badge>
+  return null
+}
+
 function ValidationActions({developmentId,contextKey,section,label,role,status,comment,beforeSend,onDone}:{developmentId:string;contextKey:string;section:ContentSection;label:string;role:"admin"|"editor"|"validator";status:ContentValidationStatus;comment:string|null;beforeSend:()=>Promise<void>;onDone:()=>Promise<void>}){
   const [busy,setBusy]=useState(false)
   const [error,setError]=useState<string|null>(null)
   const send=async()=>{setBusy(true);setError(null);try{await beforeSend();await submitSystemItemForValidation({developmentId,contextKey,section,label});await onDone()}catch(e){setError(e instanceof Error?e.message:"Falha ao enviar")}finally{setBusy(false)}}
-  const approve=async()=>{setBusy(true);setError(null);try{const result=await validateSystemItem({developmentId,contextKey,section,label});if(result.error)throw new Error(result.error);await onDone()}catch(e){setError(e instanceof Error?e.message:"Falha ao validar")}finally{setBusy(false)}}
+  const approve=async()=>{setBusy(true);setError(null);try{const result=await validateSystemItem({developmentId,contextKey,section,label});if(result.error)throw new Error(result.error);await onDone()}catch(e){setError(e instanceof Error?e.message:"Falha ao aprovar")}finally{setBusy(false)}}
   const reject=async()=>{const reason=window.prompt("Motivo da reprovação");if(!reason?.trim())return;setBusy(true);setError(null);try{const result=await rejectSystemItem({developmentId,contextKey,section,label,comment:reason});if(result.error)throw new Error(result.error);await onDone()}catch(e){setError(e instanceof Error?e.message:"Falha ao reprovar")}finally{setBusy(false)}}
   const canSend=role==="editor"||role==="admin"
   const canDecide=role==="validator"||role==="admin"
+  const showSend=canSend&&status!=="aguardando_validacao"&&status!=="aprovado"
+  const showDecision=canDecide&&status==="aguardando_validacao"
+  if(!showSend&&!showDecision&&!(comment&&status==="reprovado")&&!error)return null
   return <div className="flex max-w-full flex-col items-end gap-1">
     <div className="flex flex-wrap items-center justify-end gap-2">
-      {status==="aprovado"&&<Badge className="gap-1 bg-success/10 text-success"><Check className="h-3 w-3"/>Validado</Badge>}
-      {status==="aguardando_validacao"&&<Badge variant="outline" className="gap-1 text-warning"><Clock3 className="h-3 w-3"/>Aguardando validação</Badge>}
-      {status==="reprovado"&&<Badge variant="outline" className="gap-1 text-destructive"><X className="h-3 w-3"/>Reprovado</Badge>}
-      {canSend&&status!=="aguardando_validacao"&&status!=="aprovado"&&<Button size="sm" variant="outline" disabled={busy} onClick={()=>void send()}><Send className="h-3.5 w-3.5"/>Mandar para validação</Button>}
-      {canDecide&&status==="aguardando_validacao"&&<><Button size="sm" disabled={busy} onClick={()=>void approve()}><Check className="h-3.5 w-3.5"/>Validar</Button><Button size="sm" variant="outline" disabled={busy} onClick={()=>void reject()}><X className="h-3.5 w-3.5"/>Reprovar</Button></>}
+      {showSend&&<Button size="sm" variant="outline" disabled={busy} onClick={()=>void send()}><Send className="h-3.5 w-3.5"/>Mandar para validação</Button>}
+      {showDecision&&<><Button size="sm" disabled={busy} onClick={()=>void approve()}><Check className="h-3.5 w-3.5"/>Aprovar</Button><Button size="sm" variant="outline" disabled={busy} onClick={()=>void reject()}><X className="h-3.5 w-3.5"/>Reprovar</Button></>}
     </div>
     {comment&&status==="reprovado"&&<span className="max-w-md text-right text-xs text-destructive">{comment}</span>}
     {error&&<span className="text-xs text-destructive">{error}</span>}
