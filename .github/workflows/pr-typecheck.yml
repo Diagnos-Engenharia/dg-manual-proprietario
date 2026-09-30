@@ -57,4 +57,4 @@ jobs:
             sleep 1
           done
 
-          pnpm exec playwright test tests/pr-preview.spec.ts --reporter=line || (cat /tmp/dg-manual-preview.log && exit 1)
+          node tests/pr-preview-smoke.mjs || (cat /tmp/dg-manual-preview.log && exit 1)
