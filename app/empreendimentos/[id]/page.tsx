@@ -15,7 +15,7 @@ export default async function EmpreendimentoDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const context = await requireDevelopmentAccess(id)
+  const context = await requireDevelopmentAccess(id).catch(() => notFound())
   const persisted = await getDevelopment(id)
   if (!persisted) notFound()
   const databookFiles = await listDatabookFiles(id)
