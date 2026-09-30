@@ -39,7 +39,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Build preview
         run: pnpm build
-      - name: Start preview and validate route
+      - name: Install browser test tooling
+        run: |
+          pnpm add -D --lockfile=false @playwright/test@1.56.1
+          pnpm exec playwright install --with-deps chromium
+      - name: Start preview and validate in Chromium
         shell: bash
         run: |
           pnpm start > /tmp/dg-manual-preview.log 2>&1 &
@@ -47,13 +51,10 @@ jobs:
           trap 'kill $SERVER_PID || true' EXIT
 
           for attempt in {1..30}; do
-            if curl --silent --fail --location http://127.0.0.1:3000/ -o /tmp/preview.html; then
+            if curl --silent --fail --location http://127.0.0.1:3000/ > /dev/null; then
               break
             fi
             sleep 1
           done
 
-          test -s /tmp/preview.html || (cat /tmp/dg-manual-preview.log && exit 1)
-          grep -q "Ambiente de teste" /tmp/preview.html || (cat /tmp/preview.html && cat /tmp/dg-manual-preview.log && exit 1)
-          grep -q "Checklist Inicial" /tmp/preview.html || (cat /tmp/preview.html && cat /tmp/dg-manual-preview.log && exit 1)
-          grep -q "Sistemas Construtivos" /tmp/preview.html || (cat /tmp/preview.html && cat /tmp/dg-manual-preview.log && exit 1)
+          pnpm exec playwright test tests/pr-preview.spec.ts --reporter=line || (cat /tmp/dg-manual-preview.log && exit 1)
