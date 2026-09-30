@@ -1351,8 +1351,8 @@ export function linkedSystemItems(items: ChecklistItem[]): ChecklistItem[] {
 }
 
 export function getChecklistItemScopes(item: ChecklistItem): ChecklistScope[] {
-  const scopes = item.scopes?.filter((scope, index, list) => list.indexOf(scope) === index) ?? []
-  return scopes.length > 0 ? scopes : [item.scope]
+  if (Array.isArray(item.scopes)) return item.scopes.filter((scope, index, list) => list.indexOf(scope) === index)
+  return ["unidade", "comum"]
 }
 
 export function checklistItemMatchesScope(item: ChecklistItem, scope: ChecklistScope): boolean {
@@ -1364,8 +1364,8 @@ export function checklistItemContextKey(item: ChecklistItem, scope: ChecklistSco
 }
 
 export const scopeLabels: Record<ChecklistScope, string> = {
-  unidade: "Unidade (Proprietário)",
-  comum: "Áreas Comuns / Edificação (Síndico)",
+  unidade: "Unidades privativas",
+  comum: "Áreas comuns",
 }
 
 // ---------------------------------------------------------------------------
