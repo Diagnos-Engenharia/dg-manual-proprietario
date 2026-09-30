@@ -38,7 +38,7 @@ async function until(check, label) {
     const { id: userId, organizationId } = rows.rows[0]
     // Fixtures exist only in the isolated test database, never in application routes.
     const item = (id, name, scope) => ({ id, item: name, category: 'Sistemas de validação', scope, status: 'possui', obsProprietario: 'Diretriz privativa', obsSindico: 'Diretriz comum', norms: [], maintenance: [] })
-    const data = { ficha: { name: 'Empreendimento de validação', client: 'Construtora de validação isolada', completionDate: '2027-01-01', towers: '1', apartments: '8', typologies: '1', areas: '70' }, schedule: [], checklist: [item('unit', 'Piso privativo', 'unidade'), item('common', 'Elevador comum', 'comum'), item('shared', 'Esquadrias compartilhadas', 'unidade')] }
+    const data = { ficha: { name: 'Empreendimento de validação', client: 'Construtora de validação isolada', completionDate: '2027-01-01', towers: '1', apartments: '8', typologies: '1', areas: '70' }, schedule: ['Ficha Técnica do Empreendimento','Checklist Inicial','Manual do Proprietário','Manual do Síndico'].map((name,index)=>({id:'stage-'+(index+1),name,weight:25,originalDate:'2027-01-01',scheduledDate:'2027-01-01',status:'no_prazo',revisions:[]})), manuals:{proprietario:{sistemas:{'unit::unidade':'<p>PISO_PRIVATIVO_VALIDADO</p>'}},sindico:{sistemas:{'common::comum':'<p>ELEVADOR_COMUM_VALIDADO</p>'}}}, checklist: [item('unit', 'Piso privativo', 'unidade'), item('common', 'Elevador comum', 'comum'), item('shared', 'Esquadrias compartilhadas', 'unidade')] }
     await pool.query('INSERT INTO development (id,"userId","organizationId",name,client,"deliveryDate",data) VALUES ($1,$2,$3,$4,$5,$6,$7)', [id, userId, organizationId, 'Empreendimento de validação', 'Construtora de validação isolada', '2027-01-01', data])
     const route = `${origin}/empreendimentos/${id}?modulo=elaboracao`
     await page.goto(route)
@@ -85,20 +85,25 @@ async function until(check, label) {
     console.log('PASS description and maintenance isolated, immediate switching, reload persistence')
 
     await page.getByRole('button', { name: /^Checklist Inicial/ }).click()
-    await page.getByRole('button', { name: 'Aprovar e congelar', exact: true }).click()
-    await page.getByText('Edição congelada', { exact: true }).waitFor()
-    await page.getByRole('tab', { name: /Manual do Síndico/ }).click()
-    assert.equal(await page.getByText('Edição congelada', { exact: true }).count(), 0)
-    assert.equal(await page.getByRole('button', { name: 'Aprovar e congelar', exact: true }).count(), 1)
-    await until(async () => (await saved()).manuals?.proprietario?.workflow?.statuses?.checklist === 'aprovado', 'owner workflow persisted')
-    await page.reload()
-    await page.getByText('Edição congelada', { exact: true }).waitFor()
-    await page.getByRole('tab', { name: /Manual do Síndico/ }).click()
-    assert.equal(await page.getByText('Edição congelada', { exact: true }).count(), 0)
-    console.log('PASS checklist approval independent per manual and after reload')
+    assert.equal(await page.getByRole('button', { name: 'Aprovar e congelar', exact: true }).count(), 0)
+    await page.getByRole('button', { name: 'Histórico', exact: true }).click()
+    await page.getByText('Histórico de alterações', { exact: true }).waitFor()
+    console.log('PASS approval removed and central change history available')
 
     // Finishing table is a required section of the owner's manual.
     await pool.query('INSERT INTO finishing_table (id,"developmentId","organizationId",typology,"unitModel",area,data,"lastEditorId") VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [`finish-${suffix}`,id,organizationId,'Tipo A','101','70',{ambientes:[{id:'1',ambiente:'Sala',piso:'PISO_EXCLUSIVO_UNIDADE'}]},userId])
+    // Server-side enforcement: neither the UI nor direct API calls may bypass pending items.
+    const invalid = await saved()
+    invalid.checklist[0].status = 'nao_especificado'
+    await pool.query('UPDATE development SET data=$1 WHERE id=$2',[invalid,id])
+    const blocked = await context.request.post(origin+'/api/manuals/validate',{data:{developmentId:id,manualType:'proprietario'}})
+    assert.equal((await blocked.json()).ok,false)
+    const rejected = await context.request.post(origin+'/api/manuals/compile',{data:{developmentId:id,manualType:'proprietario'}})
+    assert.equal(rejected.status(),400)
+    invalid.checklist[0].status = 'possui'
+    await pool.query('UPDATE development SET data=$1 WHERE id=$2',[invalid,id])
+    console.log('PASS incomplete checklist blocks direct PDF emission')
+
     for (const manual of ['proprietario', 'sindico']) {
       const validation = await context.request.post(`${origin}/api/manuals/validate`, { data: { developmentId: id, manualType: manual } })
       assert.equal(validation.status(), 200, await validation.text())
