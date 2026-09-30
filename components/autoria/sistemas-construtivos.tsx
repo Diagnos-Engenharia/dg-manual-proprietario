@@ -105,12 +105,14 @@ export function SistemasConstrutivos({
     setValidations(rows=>rows.map(row=>row.contextKey===key&&row.section===section?{...row,status:"rascunho",comment:null}:row))
   }
   function updateContent(html:string){
+    if(!canEdit)return
     markEdited("sistemas")
     const next={...contents[scope],[key]:html}
     setContents(all=>({...all,[scope]:next}))
     cacheManual("sistemas",next)
   }
   function updateMaintenance(rows:MaintenanceItem[]){
+    if(!canEdit)return
     markEdited("manutencao")
     const next={...maintenance[scope],[key]:rows}
     setMaintenance(all=>({...all,[scope]:next}))
@@ -162,8 +164,8 @@ function ValidationActions({developmentId,contextKey,section,label,role,status,c
   const [busy,setBusy]=useState(false)
   const [error,setError]=useState<string|null>(null)
   const send=async()=>{setBusy(true);setError(null);try{await beforeSend();await submitSystemItemForValidation({developmentId,contextKey,section,label});await onDone()}catch(e){setError(e instanceof Error?e.message:"Falha ao enviar")}finally{setBusy(false)}}
-  const approve=async()=>{setBusy(true);setError(null);try{await validateSystemItem({developmentId,contextKey,section,label});await onDone()}catch(e){setError(e instanceof Error?e.message:"Falha ao validar")}finally{setBusy(false)}}
-  const reject=async()=>{const reason=window.prompt("Motivo da reprovação");if(!reason?.trim())return;setBusy(true);setError(null);try{await rejectSystemItem({developmentId,contextKey,section,label,comment:reason});await onDone()}catch(e){setError(e instanceof Error?e.message:"Falha ao reprovar")}finally{setBusy(false)}}
+  const approve=async()=>{setBusy(true);setError(null);try{const result=await validateSystemItem({developmentId,contextKey,section,label});if(result.error)throw new Error(result.error);await onDone()}catch(e){setError(e instanceof Error?e.message:"Falha ao validar")}finally{setBusy(false)}}
+  const reject=async()=>{const reason=window.prompt("Motivo da reprovação");if(!reason?.trim())return;setBusy(true);setError(null);try{const result=await rejectSystemItem({developmentId,contextKey,section,label,comment:reason});if(result.error)throw new Error(result.error);await onDone()}catch(e){setError(e instanceof Error?e.message:"Falha ao reprovar")}finally{setBusy(false)}}
   const canSend=role==="editor"||role==="admin"
   const canDecide=role==="validator"||role==="admin"
   return <div className="flex max-w-full flex-col items-end gap-1">

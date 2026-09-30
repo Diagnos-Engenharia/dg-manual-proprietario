@@ -73,7 +73,8 @@ export async function submitSystemItemForValidation(input:{developmentId:string;
   else await db.insert(developmentContentValidations).values({id:crypto.randomUUID(),developmentId:input.developmentId,organizationId:context.organization.id,contextKey:input.contextKey,section:input.section,status:"aguardando_validacao",lastEditorId:context.user.id,updatedAt:now})
   const validators=await validatorsForDevelopment(input.developmentId,context.organization.id)
   const sectionLabel=input.section==="sistemas"?"Descrição técnica":"Manutenção preventiva"
-  if(validators.length)await db.insert(organizationNotifications).values(validators.map(userId=>({id:crypto.randomUUID(),organizationId:context.organization.id,userId,type:"validation_requested",title:"1 item enviado para validação",body:input.label+" · "+sectionLabel})))
+  const scopeLabel=input.contextKey.endsWith("::comum")?"Áreas comuns":"Unidades privativas"
+  if(validators.length)await db.insert(organizationNotifications).values(validators.map(userId=>({id:crypto.randomUUID(),organizationId:context.organization.id,userId,type:"validation_requested",title:"1 item enviado para validação",body:input.label+" · "+scopeLabel+" · "+sectionLabel})))
   await recordAudit({organizationId:context.organization.id,actorId:context.user.id,action:"content.sent_for_validation",entityType:"development",entityId:input.developmentId,metadata:{path:["validacao",input.contextKey,input.section],before:existing?.status??"rascunho",after:"aguardando_validacao",label:input.label}})
   revalidatePath("/empreendimentos/"+input.developmentId)
   return {status:"aguardando_validacao" as ContentValidationStatus}
@@ -83,7 +84,7 @@ async function decideContentValidation(input:{developmentId:string;contextKey:st
   const context=await requireDevelopmentRole(input.developmentId,["admin","admin_empreendimento","validator"])
   const existing=await getContentValidation(input.developmentId,context.organization.id,input.contextKey,input.section)
   if(!existing||existing.status!=="aguardando_validacao")throw new Error("Este conteúdo não está aguardando validação")
-  if(input.decision==="aprovado"&&existing.lastEditorId===context.user.id)throw new Error("Quem enviou o conteúdo não pode aprovar a própria edição. Solicite a validação de outro usuário.")
+  if(input.decision==="aprovado"&&existing.lastEditorId===context.user.id)return {error:"Quem enviou o conteúdo não pode aprovar a própria edição. Solicite a validação de outro usuário."}
   if(input.decision==="reprovado"&&!input.comment?.trim())throw new Error("Informe o motivo da reprovação")
   await db.update(developmentContentValidations).set({status:input.decision,validatorId:context.user.id,comment:input.comment?.trim()||null,updatedAt:new Date()}).where(eq(developmentContentValidations.id,existing.id))
   if(existing.lastEditorId)await db.insert(organizationNotifications).values({id:crypto.randomUUID(),organizationId:context.organization.id,userId:existing.lastEditorId,type:input.decision==="aprovado"?"validation_approved":"validation_rejected",title:input.decision==="aprovado"?"Item validado":"Ajustes solicitados",body:input.label+" · "+(input.section==="sistemas"?"Descrição técnica":"Manutenção preventiva")+(input.comment?" · "+input.comment:"")})

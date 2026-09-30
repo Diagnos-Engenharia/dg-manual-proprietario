@@ -48,6 +48,7 @@ export function usePersistenceStatus<T>(value: T, save: (value: T, expectedUpdat
       initialRender.current = false
       return
     }
+    if (savedValue.current === value) return
     setState("dirty")
     const timer = window.setTimeout(() => void persistRef.current(), options?.debounceMs ?? 1000)
     return () => window.clearTimeout(timer)

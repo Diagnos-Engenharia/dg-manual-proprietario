@@ -22,10 +22,11 @@ const fieldLabels:Record<string,string>={
   sistemas:"Descrição técnica",manutencao:"Manutenção preventiva",comissionamento:"Comissionamento",
 }
 const checklistMap=new Map(checklistItems.map(item=>[item.id,item.item]))
+const validationLabels:Record<string,string>={rascunho:"Rascunho",aguardando_validacao:"Aguardando validação",aprovado:"Validado",reprovado:"Reprovado"}
 
 function cleanSegment(value:string){
   const base=value.split("::")[0]
-  return checklistMap.get(base)??value.replace(/^ck-(?:system-)?/,"").replace(/-/g," ").replace(/\b\w/g,letter=>letter.toUpperCase())
+  return checklistMap.get(base)??base.replace(/^ck-(?:system-)?/,"").replace(/-/g," ").replace(/\b\w/g,letter=>letter.toUpperCase())
 }
 function valueLabel(value:unknown):string{
   if(value===undefined||value===null||value==="")return "Não preenchido"
@@ -34,6 +35,7 @@ function valueLabel(value:unknown):string{
     return value.map(item=>typeof item==="string"?item:"Item").join(", ")
   }
   if(typeof value==="string"){
+    if(value in validationLabels)return validationLabels[value]
     if(value in checklistStatusLabels)return checklistStatusLabels[value as keyof typeof checklistStatusLabels]
     const text=value.replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim()
     return text.length>120?text.slice(0,117)+"…":text||"Vazio"
@@ -54,12 +56,18 @@ function normalize(entry:Entry){
   const last=path.at(-1)??entry.action
   const field=fieldLabels[last]??(last.includes("::")?"Conteúdo":cleanSegment(last))
   const actionTitle=entry.action==="content.approved"?"Validado":entry.action==="content.rejected"?"Reprovado":entry.action==="content.sent_for_validation"?"Enviado para validação":null
+  const scope=path.find(part=>part.includes("::"))?.split("::").at(-1)
+  const scopeLabel=scope==="unidade"||scope==="comum"?scopeLabels[scope]:null
+  const section=path.find(part=>part==="sistemas"||part==="manutencao")
+  const contextLabel=[scopeLabel,section?moduleLabels[section]:null].filter(Boolean).join(" · ")
+  const title=actionTitle?(actionTitle+" · "+(explicitLabel??item??module)):(item?(module+" · "+item):module)
   return {
     module,
-    title:actionTitle?(actionTitle+" · "+(explicitLabel??item??module)):(item?(module+" · "+item):module),
+    title:title+(contextLabel?" · "+contextLabel:""),
     field:actionTitle?"Status":field,
     before:valueLabel(meta.before),
     after:valueLabel(meta.after),
+    comment:typeof meta.comment==="string"?meta.comment:null,
   }
 }
 
@@ -78,8 +86,9 @@ export function DevelopmentHistory({developmentId}:{developmentId:string}){
       const key=[entry.actorName,normalized.title,minute].join("|")
       const existing=map.get(key)
       const change={field:normalized.field,before:normalized.before,after:normalized.after}
-      if(existing)existing.changes.push(change)
-      else map.set(key,{key,title:normalized.title,module:normalized.module,actor:entry.actorName,createdAt:entry.createdAt,changes:[change]})
+      const changes=normalized.comment?[change,{field:"Motivo",before:"—",after:normalized.comment}]:[change]
+      if(existing)existing.changes.push(...changes)
+      else map.set(key,{key,title:normalized.title,module:normalized.module,actor:entry.actorName,createdAt:entry.createdAt,changes})
     }
     return [...map.values()]
   },[entries])
