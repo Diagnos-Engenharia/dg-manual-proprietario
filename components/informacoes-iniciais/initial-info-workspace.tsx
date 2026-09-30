@@ -1,17 +1,15 @@
 "use client"
 
 import { useState } from "react"
-import { FileText, Palette, Droplets } from "lucide-react"
+import { FileText, Palette } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { FichaTecnica } from "@/components/autoria/ficha-tecnica"
 import { WhiteLabelStudio } from "@/components/white-label/white-label-studio"
-import { Comissionamento } from "@/components/autoria/comissionamento"
 
-type TabId="ficha"|"design"|"comissionamento"
+type TabId="ficha"|"design"
 const tabs=[
   {id:"ficha",label:"Ficha técnica",icon:FileText},
   {id:"design",label:"Design do Manual",icon:Palette},
-  {id:"comissionamento",label:"Comissionamento",icon:Droplets},
 ] as const
 
 export function InitialInfoWorkspace({
@@ -27,6 +25,5 @@ export function InitialInfoWorkspace({
     </div>
     {active==="ficha"&&<FichaTecnica developmentId={developmentId} disabled={!canEdit}/>}
     {active==="design"&&<WhiteLabelStudio developmentId={developmentId} organizationName={organizationName} organizationLogo={organizationLogo} organizationMetadata={organizationMetadata} persistedIdentity={persistedIdentity}/>}
-    {active==="comissionamento"&&<Comissionamento developmentId={developmentId} disabled={!canEdit}/>}
   </div>
 }
