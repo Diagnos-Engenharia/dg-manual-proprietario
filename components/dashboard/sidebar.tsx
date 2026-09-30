@@ -18,7 +18,7 @@ export function Sidebar({open=false,onClose}:{open?:boolean;onClose?:()=>void}){
   const [signingOut,setSigningOut]=useState(false)
   useEffect(()=>{const refresh=()=>{void fetch("/api/organization/context",{cache:"no-store"}).then(r=>r.ok?r.json():null).then(setContext).catch(()=>undefined)};refresh();window.addEventListener("dg-organization-updated",refresh);return()=>window.removeEventListener("dg-organization-updated",refresh)},[])
   const initials=context?.organization.initials||context?.organization.name.split(/\s+/).filter(Boolean).slice(0,2).map(p=>p[0]).join("").toUpperCase()||"CO"
-  const nav=(item:(typeof primary)[number])=>{const Icon=item.icon;const active=item.href==="/"?pathname==="/":pathname.startsWith(item.href);return <Link key={item.href} href={item.href} onClick={onClose} className={cn("flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors",active?"bg-sidebar-primary text-sidebar-primary-foreground":"text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground")}><Icon className="h-[18px] w-[18px]"/>{item.label}</Link>}
+  const nav=(item:(typeof primary)[number])=>{const Icon=item.icon;const active=item.href==="/"?pathname==="/":pathname.startsWith(item.href);return <Link key={item.href} href={item.href} onClick={onClose} className={cn("flex min-h-10 w-full items-center justify-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-all",active?"bg-sidebar-primary text-sidebar-primary-foreground shadow-sm":"text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground")}><Icon className="h-[17px] w-[17px] shrink-0"/><span>{item.label}</span></Link>}
   async function logout(){setSigningOut(true);await signOut({fetchOptions:{onSuccess:()=>{window.location.href="/sign-in"}}})}
   const settingsActive=pathname.startsWith("/configuracoes")
   return <><div className={cn(open?"fixed inset-0 z-40 bg-black/40 lg:hidden":"hidden")} onClick={onClose}/>
@@ -28,9 +28,9 @@ export function Sidebar({open=false,onClose}:{open?:boolean;onClose?:()=>void}){
         <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-sidebar-primary text-sm font-bold text-sidebar-primary-foreground">{context?.organization.logo?<img src={context.organization.logo} alt={"Logo "+context.organization.name} className="h-full w-full object-contain"/>:initials}</div>
         <div className="min-w-0 leading-tight"><p className="truncate font-semibold text-sidebar-accent-foreground">{context?.organization.name||"Construtora"}</p><p className="truncate text-xs text-sidebar-foreground/60">Workspace</p></div>
       </div>
-      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-4"><p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">Principal</p>{primary.map(nav)}</nav>
-      <div className="px-3 pb-2">
-        {context?.role==="admin"&&<Link href="/configuracoes" onClick={onClose} className={cn("flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium",settingsActive?"bg-sidebar-primary text-sidebar-primary-foreground":"text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground")}><Settings className="h-[18px] w-[18px]"/>Configurações</Link>}
+      <nav className="flex flex-1 flex-col gap-1.5 overflow-y-auto px-4 py-4"><p className="pb-2 text-center text-[10px] font-semibold uppercase tracking-[0.14em] text-sidebar-foreground/45">Principal</p>{primary.map(nav)}</nav>
+      <div className="px-4 pb-3">
+        {context?.role==="admin"&&<Link href="/configuracoes" onClick={onClose} className={cn("flex min-h-10 w-full items-center justify-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-all",settingsActive?"bg-sidebar-primary text-sidebar-primary-foreground shadow-sm":"text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground")}><Settings className="h-[17px] w-[17px] shrink-0"/><span>Configurações</span></Link>}
       </div>
       <div className="relative border-t border-sidebar-border p-4">
         <button type="button" onClick={()=>setUserMenu(v=>!v)} className="flex w-full items-center gap-3 rounded-lg p-2 text-left hover:bg-sidebar-accent">
