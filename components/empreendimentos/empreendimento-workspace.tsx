@@ -49,6 +49,7 @@ export function EmpreendimentoWorkspace({ role, developmentId, organizationName 
       ...(record?.ficha ? { ficha: record.ficha as DevelopmentRecord["ficha"] } : {}),
       ...(record?.schedule ? { schedule: record.schedule as DevelopmentRecord["schedule"] } : {}),
       ...(record?.authoring && typeof record.authoring === "object" ? { authoring: record.authoring as Record<string, unknown> } : {}),
+      ...(record?.manuals && typeof record.manuals === "object" ? { manuals: record.manuals as Record<string, unknown> } : {}),
       ...(record?.identity && typeof record.identity === "object" ? { identity: record.identity as Record<string, unknown> } : {}),
       ...(record?.brand && typeof record.brand === "object" ? { identity: record.brand as Record<string, unknown> } : {}),
     })
