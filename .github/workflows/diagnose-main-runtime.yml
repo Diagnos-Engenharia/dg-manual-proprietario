@@ -29,7 +29,7 @@ jobs:
       - name: Validate production in real browser
         shell: bash
         run: |
-          cat > /tmp/probe.mjs <<'EOF'
+          cat > probe.mjs <<'EOF'
           import { chromium } from "@playwright/test";
           const browser = await chromium.launch({ headless: true });
           const page = await browser.newPage();
@@ -53,4 +53,4 @@ jobs:
           if (pageErrors.length) throw new Error("Client page errors: " + pageErrors.join(" | "));
           await browser.close();
           EOF
-          node /tmp/probe.mjs
+          node probe.mjs
