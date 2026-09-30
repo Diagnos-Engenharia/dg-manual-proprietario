@@ -43,12 +43,35 @@ export const workflowStateLabels: Record<WorkflowState, string> = {
   aprovado: "Aprovado",
 }
 
+type HtmlSanitizer = { sanitize: (value: string) => string }
+
 export function sanitizeHtml(html: string) {
-  if (typeof window === "undefined") return html.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "")
-  // DOMPurify runs only in the browser because the editor is a client component.
+  const fallback = () => html.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "")
+  if (typeof window === "undefined") return fallback()
+
+  // O pacote pode chegar ao bundle como namespace ESM, default export ou factory.
+  // Normalizamos os três formatos para evitar falha durante a hidratação do editor.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const DOMPurify = require("dompurify") as typeof import("dompurify")
-  return DOMPurify.default.sanitize(html)
+  const imported = require("dompurify") as
+    | HtmlSanitizer
+    | ((targetWindow: Window) => HtmlSanitizer)
+    | { default?: HtmlSanitizer | ((targetWindow: Window) => HtmlSanitizer) }
+
+  const candidate =
+    typeof imported === "object" && imported !== null && "default" in imported && imported.default
+      ? imported.default
+      : imported
+
+  if (typeof candidate === "object" && candidate !== null && "sanitize" in candidate) {
+    return (candidate as HtmlSanitizer).sanitize(html)
+  }
+
+  if (typeof candidate === "function") {
+    const instance = candidate(window)
+    if (instance && typeof instance.sanitize === "function") return instance.sanitize(html)
+  }
+
+  return fallback()
 }
 
 export const supportedVariables = ["{{nome_cliente}}", "{{construtora}}", "{{unidade}}", "{{data_entrega}}", "{{responsavel_tecnico}}"] as const
