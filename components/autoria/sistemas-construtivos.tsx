@@ -17,6 +17,9 @@ import {
 import {
   nbrNorms,
   scopeLabels,
+  getChecklistItemScopes,
+  checklistItemMatchesScope,
+  checklistItemContextKey,
   type ChecklistItem,
   type ChecklistScope,
   type MaintenanceItem,
@@ -33,11 +36,14 @@ const scopeIcon: Record<ChecklistScope, typeof Home> = {
 }
 
 // Constrói a diretriz pré-preenchida a partir do item do checklist.
-function buildGuideline(item: ChecklistItem): string {
-  if (item.guideline) return item.guideline
-  const obs = [item.obsProprietario, item.obsSindico].filter((o) => o && o !== "—")
+function buildGuideline(item: ChecklistItem, scope: ChecklistScope): string {
+  const scopes = getChecklistItemScopes(item)
+  if (item.guideline && scopes.length === 1) return item.guideline
+  const observation = scope === "unidade" ? item.obsProprietario : item.obsSindico
   return `<h2>${item.item}</h2><p>${
-    obs[0] ?? "Descreva as especificações técnicas deste sistema."
+    observation && observation !== "—"
+      ? observation
+      : "Descreva as especificações técnicas deste sistema para este contexto."
   }</p>`
 }
 
@@ -47,20 +53,22 @@ export function SistemasConstrutivos({
   scope,
   developmentId,
   manual,
+  initialContents = {},
 }: {
   items: ChecklistItem[]
   disabled?: boolean
   scope?: ChecklistScope
   developmentId?: string
   manual?: "proprietario" | "sindico"
+  initialContents?: Record<string, string>
 }) {
-  const scopedItems = useMemo(() => scope ? items.filter((item) => item.scope === scope) : items, [items, scope])
+  const scopedItems = useMemo(() => scope ? items.filter((item) => checklistItemMatchesScope(item, scope)) : items, [items, scope])
   const [openScope, setOpenScope] = useState<Record<ChecklistScope, boolean>>({
     unidade: true,
     comum: true,
   })
   const [activeId, setActiveId] = useState<string | null>(scopedItems[0]?.id ?? null)
-  const [contents, setContents] = useState<Record<string, string>>({})
+  const [contents, setContents] = useState<Record<string, string>>(() => initialContents)
   const save = async (value: Record<string, string>) => {
     if (!developmentId) throw new Error("Empreendimento não identificado")
     return saveDevelopmentModulePath(developmentId, ["manuals", manual ?? "proprietario", "sistemas"], value)
@@ -88,14 +96,16 @@ export function SistemasConstrutivos({
   // Se o item ativo saiu da lista (mudança no checklist), realinha.
   const active = scopedItems.find((i) => i.id === activeId) ?? scopedItems[0]
 
-  const scopes: ChecklistScope[] = ["unidade", "comum"]
-  const byScope = (scope: ChecklistScope) => scopedItems.filter((i) => i.scope === scope)
+  const scopes: ChecklistScope[] = scope ? [scope] : ["unidade", "comum"]
+  const byScope = (targetScope: ChecklistScope) => scopedItems.filter((item) => checklistItemMatchesScope(item, targetScope))
+  const activeScope = scope ?? getChecklistItemScopes(active)[0]
+  const activeContextKey = checklistItemContextKey(active, activeScope)
 
   function updateContent(html: string) {
-    setContents((prev) => ({ ...prev, [active.id]: html }))
+    setContents((prev) => ({ ...prev, [activeContextKey]: html }))
   }
 
-  const ScopeActiveIcon = scopeIcon[active.scope]
+  const ScopeActiveIcon = scopeIcon[activeScope]
 
   return (
     <div className="grid gap-5 lg:grid-cols-[300px_1fr]">
@@ -176,7 +186,7 @@ export function SistemasConstrutivos({
             </h3>
             <span className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
               <ScopeActiveIcon className="h-3 w-3" />
-              {scopeLabels[active.scope]}
+              {scopeLabels[activeScope]}
               <span className="text-muted-foreground/50">·</span>
               {active.category}
             </span>
@@ -207,8 +217,8 @@ export function SistemasConstrutivos({
             Descrição técnica
           </p>
           <RichTextEditor
-            key={active.id}
-            value={contents[active.id] ?? buildGuideline(active)}
+            key={activeContextKey}
+            value={contents[activeContextKey] ?? contents[active.id] ?? buildGuideline(active, activeScope)}
             onChange={updateContent}
             disabled={disabled}
           />
@@ -216,7 +226,7 @@ export function SistemasConstrutivos({
         </div>
 
         {active.maintenance && active.maintenance.length > 0 && (
-          <MaintenanceTable key={active.id} items={active.maintenance} disabled={disabled} />
+          <MaintenanceTable key={activeContextKey} items={active.maintenance} disabled={disabled} />
         )}
 
         {active.norms.length > 0 && <NormsReference norms={active.norms} />}
