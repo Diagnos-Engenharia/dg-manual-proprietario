@@ -1059,6 +1059,7 @@ export type ChecklistItem = {
   scopes?: ChecklistScope[]
   status: ChecklistStatus
   approvalStatus?: "rascunho" | "em_revisao" | "aprovado"
+  approvalStatusByScope?: Partial<Record<ChecklistScope, "rascunho" | "em_revisao" | "aprovado">>
   obsProprietario: string
   obsSindico: string
   norms: string[]
