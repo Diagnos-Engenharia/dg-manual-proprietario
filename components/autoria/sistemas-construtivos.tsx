@@ -5,6 +5,7 @@ import { useDevelopmentStore } from "@/lib/store"
 import { saveDevelopmentModulePath } from "@/app/actions/developments"
 import {
   listSystemValidationStates,
+  markSystemItemEdited,
   rejectSystemItem,
   submitSystemItemForValidation,
   validateSystemItem,
@@ -99,12 +100,20 @@ export function SistemasConstrutivos({
     const manual=meta.manual
     updateDevelopment(developmentId,{manuals:{...manuals,[manual]:{...(manuals[manual] as object??{}),[section]:next}}})
   }
+  function markEdited(section:ContentSection){
+    const current=statusFor(validations,key,section)
+    if(current==="rascunho")return
+    setValidations(rows=>rows.map(row=>row.contextKey===key&&row.section===section?{...row,status:"rascunho",comment:null}:row))
+    void markSystemItemEdited({developmentId,contextKey:key,section}).catch(()=>void loadValidations())
+  }
   function updateContent(html:string){
+    markEdited("sistemas")
     const next={...contents[scope],[key]:html}
     setContents(all=>({...all,[scope]:next}))
     cacheManual("sistemas",next)
   }
   function updateMaintenance(rows:MaintenanceItem[]){
+    markEdited("manutencao")
     const next={...maintenance[scope],[key]:rows}
     setMaintenance(all=>({...all,[scope]:next}))
     cacheManual("manutencao",next)

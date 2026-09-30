@@ -93,3 +93,12 @@ async function decideContentValidation(input:{developmentId:string;contextKey:st
 
 export async function validateSystemItem(input:{developmentId:string;contextKey:string;section:ContentSection;label:string}){return decideContentValidation({...input,decision:"aprovado"})}
 export async function rejectSystemItem(input:{developmentId:string;contextKey:string;section:ContentSection;label:string;comment:string}){return decideContentValidation({...input,decision:"reprovado"})}
+
+
+export async function markSystemItemEdited(input:{developmentId:string;contextKey:string;section:ContentSection}){
+  const context=await requireDevelopmentRole(input.developmentId,["admin","admin_empreendimento","editor"])
+  const existing=await getContentValidation(input.developmentId,context.organization.id,input.contextKey,input.section)
+  if(!existing||existing.status==="rascunho")return {status:"rascunho" as ContentValidationStatus}
+  await db.update(developmentContentValidations).set({status:"rascunho",validatorId:null,comment:null,lastEditorId:context.user.id,updatedAt:new Date()}).where(eq(developmentContentValidations.id,existing.id))
+  return {status:"rascunho" as ContentValidationStatus}
+}
