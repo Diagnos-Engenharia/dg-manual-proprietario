@@ -133,7 +133,7 @@ export function SistemasConstrutivos({
             const done=technical==="aprovado"&&maintenanceStatus==="aprovado"
             const pending=technical==="aguardando_validacao"||maintenanceStatus==="aguardando_validacao"
             const rejected=technical==="reprovado"||maintenanceStatus==="reprovado"
-            return <li key={entry.key}><button onClick={()=>setActiveKey(entry.key)} className={cn("flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm",activeKey===entry.key?"bg-primary/10 font-medium text-foreground":"text-muted-foreground hover:bg-accent hover:text-foreground")}><span className="min-w-0 flex-1 truncate">{entry.item.item}</span>{done?<CheckCircle2 className="h-4 w-4 text-success"/>:pending?<Clock3 className="h-4 w-4 text-warning"/>:rejected?<AlertCircle className="h-4 w-4 text-destructive"/>:null}</button></li>
+            return <li key={entry.key}><button onClick={()=>setActiveKey(entry.key)} className={cn("flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm",activeKey===entry.key?"bg-primary/10 font-medium text-foreground":"text-muted-foreground hover:bg-accent hover:text-foreground")}><span className="min-w-0 flex-1 truncate">{entry.item.item}</span>{done?<CheckCircle2 className="h-4 w-4 text-success" aria-label="Validado"/>:pending?<Clock3 className="h-4 w-4 text-warning" aria-label="Aguardando validação"/>:rejected?<AlertCircle className="h-4 w-4 text-destructive" aria-label="Reprovado"/>:null}</button></li>
           })}</ul>}
         </div>
       })}
