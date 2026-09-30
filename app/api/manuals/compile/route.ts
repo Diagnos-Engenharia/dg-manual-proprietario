@@ -6,7 +6,7 @@ import { NextResponse } from "next/server"
 import { and, desc, eq } from "drizzle-orm"
 import { db } from "@/lib/db"
 import { developments, databookFiles, finishingTables, manualVersions } from "@/lib/db/schema"
-import { requireCompanyRole } from "@/lib/organization"
+import { recordAudit, requireCompanyRole } from "@/lib/organization"
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({})) as { developmentId?: string; manualType?: string; comment?: string }
@@ -89,5 +89,6 @@ export async function POST(request: Request) {
   const id = crypto.randomUUID()
   await db.insert(manualVersions).values({ id, developmentId: body.developmentId, organizationId: context.organization.id, manualType, revision, status: "rascunho", comment: body.comment?.trim() || null, filename, pathname: blob.pathname, sections: sectionCount, pages: pdf.getPageCount(), attachments: (await db.select({ id: databookFiles.id }).from(databookFiles).where(eq(databookFiles.developmentId, body.developmentId))).length, finishingTableId: finishing?.id ?? null, finishingRevision: finishing?.revision ?? null, finishingRows: finishingRows.length, createdBy: context.user.id })
   await db.update(developments).set({ version: revision, lastEditorId: context.user.id, updatedAt: new Date() }).where(eq(developments.id, body.developmentId))
+  await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: "manual.issued", entityType: "development", entityId: body.developmentId, metadata: { path: ["emissao", manualType], before: null, after: { filename, revision, pages: pdf.getPageCount() } } })
   return NextResponse.json({ id, filename, pathname: blob.pathname, revision, sections: sectionCount, pages: pdf.getPageCount() }, { status: 201 })
 }

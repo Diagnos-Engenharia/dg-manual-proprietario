@@ -5,7 +5,7 @@ import { db } from "@/lib/db"
 import { databookFiles, developments } from "@/lib/db/schema"
 import { eq, and } from "drizzle-orm"
 import { headers } from "next/headers"
-import { requireActiveMembership } from "@/lib/organization"
+import { recordAudit, requireActiveMembership } from "@/lib/organization"
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,6 +22,7 @@ export async function POST(request: NextRequest) {
     const pathname = `databook/${developmentId}/${folder.replace(/[^a-zA-Z0-9À-ÿ _-]/g, "-")}/${file.name}`
     const blob = await put(pathname, file, { access: "private", addRandomSuffix: true })
     await db.insert(databookFiles).values({ id: crypto.randomUUID(), userId: session.user.id, developmentId, folder, name: file.name, pathname: blob.pathname, contentType: file.type || null, sizeBytes: file.size })
+    await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: "databook.uploaded", entityType: "development", entityId: developmentId, metadata: { path: ["databook", folder, file.name], before: null, after: { pathname: blob.pathname, size: file.size } } })
     return NextResponse.json({ pathname: blob.pathname, size: file.size, name: file.name })
   } catch (error) {
     console.error("[v0] DATABOOK upload failed", error)
