@@ -42,6 +42,10 @@ async function until(check, label) {
     await pool.query('INSERT INTO development (id,"userId","organizationId",name,client,"deliveryDate",data) VALUES ($1,$2,$3,$4,$5,$6,$7)', [id, userId, organizationId, 'Empreendimento de validação', 'Construtora de validação isolada', '2027-01-01', data])
     const route = `${origin}/empreendimentos/${id}?modulo=elaboracao`
     await page.goto(route)
+    await page.getByRole('button', { name: 'Ficha técnica', exact: true }).waitFor()
+    const authoringTabs = await page.locator('button').allTextContents()
+    assert.ok(authoringTabs.indexOf('Ficha técnica') < authoringTabs.indexOf('Design do Manual'), 'Design do Manual must follow the technical sheet')
+    await page.getByRole('button', { name: /^Checklist Inicial/ }).click()
     await page.getByText('Piso privativo', { exact: true }).waitFor()
     assert.equal(await page.getByText('Elevador comum', { exact: true }).count(), 0)
     const sharedRow = page.getByRole('row').filter({ hasText: 'Esquadrias compartilhadas' })
