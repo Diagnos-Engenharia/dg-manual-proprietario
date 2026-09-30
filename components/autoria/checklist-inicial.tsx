@@ -5,6 +5,8 @@ import { Link2, Home, Building, ChevronDown } from "lucide-react"
 import {
   checklistStatusLabels,
   scopeLabels,
+  getChecklistItemScopes,
+  checklistItemMatchesScope,
   type ChecklistItem,
   type ChecklistStatus,
   type ChecklistScope,
@@ -30,15 +32,17 @@ const scopeIcon: Record<ChecklistScope, typeof Home> = {
 export function ChecklistInicial({
   items,
   onChangeStatus,
+  onChangeScopes,
   disabled,
   scope,
 }: {
   items: ChecklistItem[]
   onChangeStatus: (id: string, status: ChecklistStatus) => void
+  onChangeScopes?: (id: string, scopes: ChecklistScope[]) => void
   disabled?: boolean
   scope?: ChecklistScope
 }) {
-  const scopedItems = scope ? items.filter((item) => item.scope === scope) : items
+  const scopedItems = scope ? items.filter((item) => checklistItemMatchesScope(item, scope)) : items
   // Agrupa por categoria preservando a ordem de aparição dos itens.
   const grouped = useMemo(() => {
     const map = new Map<string, ChecklistItem[]>()
@@ -48,7 +52,7 @@ export function ChecklistInicial({
       map.set(it.category, list)
     }
     return [...map.entries()]
-  }, [items])
+  }, [scopedItems])
 
   const linkedCount = scopedItems.filter(
     (i) => i.status === "possui" || i.status === "em_andamento",
@@ -95,15 +99,47 @@ export function ChecklistInicial({
               </thead>
               <tbody>
                 {catItems.map((it) => {
-                  const ScopeIcon = scopeIcon[it.scope]
+                  const itemScopes = getChecklistItemScopes(it)
+                  const primaryScope = scope && itemScopes.includes(scope) ? scope : itemScopes[0]
+                  const ScopeIcon = scopeIcon[primaryScope]
+
+                  function toggleScope(target: ChecklistScope) {
+                    if (!onChangeScopes || disabled) return
+                    const next = itemScopes.includes(target)
+                      ? itemScopes.filter((value) => value !== target)
+                      : [...itemScopes, target]
+                    if (next.length === 0) return
+                    onChangeScopes(it.id, next)
+                  }
+
                   return (
                     <tr key={it.id} className="border-b border-border last:border-0 align-top">
                       <td className="px-4 py-3">
                         <div className="flex flex-col gap-1">
                           <span className="font-medium leading-tight">{it.item}</span>
-                          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                          <span className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
                             <ScopeIcon className="h-3 w-3" />
-                            {scopeLabels[it.scope]}
+                            {itemScopes.map((itemScope) => (
+                              <button
+                                key={itemScope}
+                                type="button"
+                                disabled={!onChangeScopes || disabled}
+                                onClick={() => toggleScope(itemScope)}
+                                className="rounded border border-border bg-muted/40 px-1.5 py-0.5 disabled:cursor-default"
+                                title={onChangeScopes && !disabled ? "Clique para remover este escopo" : undefined}
+                              >
+                                {scopeLabels[itemScope]}
+                              </button>
+                            ))}
+                            {onChangeScopes && !disabled && itemScopes.length === 1 && (
+                              <button
+                                type="button"
+                                onClick={() => toggleScope(itemScopes[0] === "unidade" ? "comum" : "unidade")}
+                                className="rounded border border-dashed border-primary/40 px-1.5 py-0.5 text-primary"
+                              >
+                                + {itemScopes[0] === "unidade" ? "Área comum" : "Unidade privativa"}
+                              </button>
+                            )}
                           </span>
                           {it.norms.length > 0 && (
                             <span className="mt-0.5 flex flex-wrap gap-1">
