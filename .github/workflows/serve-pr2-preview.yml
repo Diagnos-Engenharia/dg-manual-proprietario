@@ -1,0 +1,123 @@
+name: Serve PR2 integrated preview
+
+on:
+  push:
+    branches: [diagnostic/main-runtime]
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dgpreview
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d dgpreview"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/dgpreview
+      NODE_ENV: production
+
+    steps:
+      - name: Checkout PR #2 branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/checklist-dual-scope-integrated
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install app
+        run: pnpm install --frozen-lockfile
+
+      - name: Build real PR application
+        run: pnpm build
+
+      - name: Install Cloudflare tunnel
+        shell: bash
+        run: |
+          curl -L --fail --silent --show-error             https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64             -o /usr/local/bin/cloudflared
+          chmod +x /usr/local/bin/cloudflared
+          cloudflared --version
+
+      - name: Start tunnel and application
+        shell: bash
+        run: |
+          cloudflared tunnel --no-autoupdate --url http://127.0.0.1:3000 > /tmp/cloudflared.log 2>&1 &
+          echo $! > /tmp/cloudflared.pid
+
+          for i in {1..60}; do
+            URL=$(grep -oE 'https://[-a-z0-9]+\.trycloudflare\.com' /tmp/cloudflared.log | head -1 || true)
+            if [ -n "$URL" ]; then break; fi
+            sleep 1
+          done
+
+          if [ -z "$URL" ]; then
+            cat /tmp/cloudflared.log
+            exit 1
+          fi
+
+          echo "PREVIEW_URL=$URL" >> "$GITHUB_ENV"
+          echo "### PR #2 integrated preview" >> "$GITHUB_STEP_SUMMARY"
+          echo "$URL" >> "$GITHUB_STEP_SUMMARY"
+
+          BETTER_AUTH_URL="$URL" pnpm start > /tmp/app.log 2>&1 &
+          echo $! > /tmp/app.pid
+
+          for i in {1..60}; do
+            CODE=$(curl -sS -o /tmp/root.html -w "%{http_code}" "$URL/sign-up" || true)
+            if [ "$CODE" = "200" ]; then break; fi
+            sleep 2
+          done
+
+          if [ "$CODE" != "200" ]; then
+            echo "Application did not become ready"
+            cat /tmp/app.log
+            cat /tmp/cloudflared.log
+            exit 1
+          fi
+
+          echo "Preview ready at $URL"
+
+      - name: Validate integrated preview
+        shell: bash
+        run: |
+          curl -sS -L "$PREVIEW_URL/sign-up" -o /tmp/signup.html
+          grep -q "Criar" /tmp/signup.html || (cat /tmp/signup.html | head -c 3000; exit 1)
+          curl -sS "$PREVIEW_URL/api/auth/get-session" -o /tmp/session.json
+          echo "Auth endpoint: $(cat /tmp/session.json)"
+          echo "PR2_PREVIEW_URL=$PREVIEW_URL"
+
+      - name: Keep preview online for validation
+        shell: bash
+        run: |
+          echo "PR2_PREVIEW_URL=$PREVIEW_URL"
+          echo "This environment uses the real PR #2 code with an ephemeral PostgreSQL database."
+          for i in {1..720}; do
+            if ! kill -0 "$(cat /tmp/app.pid)" 2>/dev/null; then
+              echo "Application stopped unexpectedly"
+              cat /tmp/app.log
+              exit 1
+            fi
+            if ! kill -0 "$(cat /tmp/cloudflared.pid)" 2>/dev/null; then
+              echo "Tunnel stopped unexpectedly"
+              cat /tmp/cloudflared.log
+              exit 1
+            fi
+            sleep 10
+          done
