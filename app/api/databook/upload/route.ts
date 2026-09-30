@@ -5,7 +5,7 @@ import { db } from "@/lib/db"
 import { databookFiles, developments } from "@/lib/db/schema"
 import { eq, and } from "drizzle-orm"
 import { headers } from "next/headers"
-import { recordAudit, requireActiveMembership } from "@/lib/organization"
+import { recordAudit, requireDevelopmentRole } from "@/lib/organization"
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     const developmentId = String(formData.get("developmentId") || "")
     const folder = String(formData.get("folder") || "Arquivos")
     if (!(file instanceof File) || !developmentId) return NextResponse.json({ error: "Arquivo ou empreendimento não informado" }, { status: 400 })
-    const context = await requireActiveMembership()
+    const context = await requireDevelopmentRole(developmentId,["admin","admin_empreendimento","editor"])
     const development = await db.select({ id: developments.id }).from(developments).where(and(eq(developments.id, developmentId), eq(developments.organizationId, context.organization.id))).limit(1)
     if (!development[0]) return NextResponse.json({ error: "Empreendimento não encontrado" }, { status: 404 })
     const pathname = `databook/${developmentId}/${folder.replace(/[^a-zA-Z0-9À-ÿ _-]/g, "-")}/${file.name}`
