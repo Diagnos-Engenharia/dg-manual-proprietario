@@ -1,7 +1,7 @@
 import { AppShell } from "@/components/dashboard/app-shell"
 import { EmpreendimentosPageContent } from "@/components/empreendimentos/empreendimentos-page-content"
 import { listDevelopments } from "@/app/actions/developments"
-import { requireActiveMembership } from "@/lib/organization"
+import { isGlobalAdmin, requireActiveMembership } from "@/lib/organization"
 
 export default async function EmpreendimentosPage() {
   const [persisted, context] = await Promise.all([listDevelopments().catch(() => []), requireActiveMembership()])
@@ -10,7 +10,7 @@ export default async function EmpreendimentosPage() {
       title="Empreendimentos"
       description="Selecione um empreendimento para gerenciar cronograma, elaboração, identidade visual e emissão."
     >
-      <EmpreendimentosPageContent persisted={persisted} organizationName={context.organization.name} />
+      <EmpreendimentosPageContent persisted={persisted} organizationName={context.organization.name} canCreate={isGlobalAdmin(context.member.role)} />
     </AppShell>
   )
 }

@@ -12,7 +12,7 @@ export function AppShell({ title, description, actions, children }: { title: str
   const [open, setOpen] = useState(false)
   const pathname = usePathname()
   const segments = pathname.split("/").filter(Boolean)
-  const labels: Record<string, string> = { empreendimentos: "Empreendimentos", manuais: "Manuais", perfil: "Meu perfil", equipe: "Equipe e acessos", integracao: "Integração" }
+  const labels: Record<string, string> = { empreendimentos: "Empreendimentos", manuais: "Manuais", perfil: "Meu perfil", configuracoes:"Informações da construtora", equipe: "Equipe e acessos", integracao: "Integração" }
   return (
     <div className="flex min-h-svh bg-background">
       <Sidebar open={open} onClose={() => setOpen(false)} />
