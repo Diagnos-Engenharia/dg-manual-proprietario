@@ -32,7 +32,7 @@ export function OrganizationIdentity({name:initialName,logo:initialLogo,initials
   async function save(){
     if(!name.trim())return setError("Informe o nome da construtora.")
     setBusy(true);setError("");setSuccess("")
-    try{await updateOrganization({name,logo:logo??"",initials,primaryColor:color});setSuccess("Identidade atualizada.");router.refresh()}
+    try{await updateOrganization({name,logo:logo??"",initials,primaryColor:color});setSuccess("Identidade atualizada.");window.dispatchEvent(new Event("dg-organization-updated"));router.refresh()}
     catch(e){setError(e instanceof Error?e.message:"Erro ao salvar")}
     finally{setBusy(false)}
   }
