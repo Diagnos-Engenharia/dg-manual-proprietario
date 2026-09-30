@@ -2,11 +2,12 @@
 
 import { db } from '@/lib/db'
 import { auditLogs, databookFiles, developments, finishingTableHistory, finishingTables, user } from '@/lib/db/schema'
-import { and, desc, eq, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
-import { recordAudit, requireActiveMembership, requireCompanyRole } from '@/lib/organization'
+import { isGlobalAdmin, permittedDevelopmentIds, recordAudit, requireActiveMembership, requireCompanyRole, requireDevelopmentAccess, requireDevelopmentRole } from '@/lib/organization'
 
 export async function getDevelopment(id: string) {
+  await requireDevelopmentAccess(id)
   const context = await requireActiveMembership()
   const rows = await db.select().from(developments).where(and(eq(developments.id, id), eq(developments.organizationId, context.organization.id))).limit(1)
   return rows[0] ?? null
@@ -14,7 +15,9 @@ export async function getDevelopment(id: string) {
 
 export async function listDevelopments() {
   const context = await requireActiveMembership()
-  return db.select().from(developments).where(eq(developments.organizationId, context.organization.id))
+  const ids = await permittedDevelopmentIds(context)
+  if(ids!==null && !ids.length)return []
+  return db.select().from(developments).where(and(eq(developments.organizationId, context.organization.id),...(ids===null?[]:[inArray(developments.id,ids)])))
 }
 
 export async function createDevelopment(input: {
@@ -24,7 +27,7 @@ export async function createDevelopment(input: {
   deliveryDate: string
   data: unknown
 }) {
-  const context = await requireCompanyRole(["admin", "editor"])
+  const context = await requireCompanyRole(["admin"])
   await db.insert(developments).values({
     id: input.id,
     userId: context.user.id,
@@ -42,7 +45,7 @@ export async function createDevelopment(input: {
 }
 
 export async function updateDevelopmentData(id: string, data: unknown) {
-  const context = await requireCompanyRole(["admin", "editor"])
+  const context = await requireDevelopmentRole(id,["admin","admin_empreendimento","editor"])
   await db.update(developments).set({ data, updatedAt: new Date() }).where(and(eq(developments.id, id), eq(developments.organizationId, context.organization.id)))
   revalidatePath(`/empreendimentos/${id}`)
 }
@@ -52,14 +55,14 @@ export type FinishingRow = Record<string, string> & { id: string }
 export type FinishingTableData = { ambientes: FinishingRow[]; materiais: FinishingRow[]; hidraulicas: FinishingRow[]; esquadrias: FinishingRow[]; eletricas: FinishingRow[] }
 
 export async function getFinishingTable(developmentId: string, typology: string) {
-  const context = await requireActiveMembership()
+  const context = await requireDevelopmentAccess(developmentId)
   const rows = await db.select().from(finishingTables).where(and(eq(finishingTables.developmentId, developmentId), eq(finishingTables.organizationId, context.organization.id), eq(finishingTables.typology, typology))).limit(1)
   return rows[0] ?? null
 }
 
 export async function saveFinishingTable(input: { id?: string; developmentId: string; tower: string; typology: string; unitModel: string; area: string; data: FinishingTableData; expectedRevision?: number }) {
-  const context = await requireCompanyRole(["admin", "editor"])
-  const existing = input.id ? (await db.select().from(finishingTables).where(and(eq(finishingTables.id, input.id), eq(finishingTables.organizationId, context.organization.id))).limit(1))[0] : undefined
+  const context = await requireDevelopmentRole(input.developmentId,["admin","admin_empreendimento","editor"])
+  const existing = input.id ? (await db.select().from(finishingTables).where(and(eq(finishingTables.id, input.id), eq(finishingTables.developmentId,input.developmentId),eq(finishingTables.organizationId, context.organization.id))).limit(1))[0] : undefined
   if (existing && input.expectedRevision !== undefined && existing.revision !== input.expectedRevision) throw new Error("Esta tabela foi alterada por outro usuário. Recarregue antes de salvar.")
   const id = existing?.id ?? crypto.randomUUID()
   const revision = (existing?.revision ?? 0) + 1
@@ -72,14 +75,14 @@ export async function saveFinishingTable(input: { id?: string; developmentId: st
 }
 
 export async function duplicateFinishingTable(input: { sourceId: string; developmentId: string; typology: string; unitModel: string; area: string }) {
-  const context = await requireCompanyRole(["admin", "editor"])
-  const source = (await db.select().from(finishingTables).where(and(eq(finishingTables.id, input.sourceId), eq(finishingTables.organizationId, context.organization.id))).limit(1))[0]
+  const context = await requireDevelopmentRole(input.developmentId,["admin","admin_empreendimento","editor"])
+  const source = (await db.select().from(finishingTables).where(and(eq(finishingTables.id, input.sourceId),eq(finishingTables.developmentId,input.developmentId), eq(finishingTables.organizationId, context.organization.id))).limit(1))[0]
   if (!source) throw new Error("Tabela de origem não encontrada")
   return saveFinishingTable({ developmentId: input.developmentId, tower: source.tower, typology: input.typology, unitModel: input.unitModel, area: input.area, data: source.data as FinishingTableData })
 }
 
 export async function listDatabookFiles(developmentId: string) {
-  const context = await requireActiveMembership()
+  const context = await requireDevelopmentAccess(developmentId)
   const rows = await db.select({ file: databookFiles }).from(databookFiles).innerJoin(developments, eq(databookFiles.developmentId, developments.id)).where(and(eq(databookFiles.developmentId, developmentId), eq(developments.organizationId, context.organization.id)))
   return rows.map(({ file }) => file)
 }
@@ -105,7 +108,7 @@ function auditChanges(before: unknown, after: unknown, path: string[], depth = 0
 }
 
 export async function saveDevelopmentModulePath(id: string, path: string[], value: unknown, expectedUpdatedAt?: string) {
-  const context = await requireCompanyRole(["admin", "editor"])
+  const context = await requireDevelopmentRole(id,["admin","admin_empreendimento","editor"])
   if (path.length === 0 || path.some((segment) => !/^[a-zA-Z0-9_-]+$/.test(segment))) throw new Error("Caminho de persistência inválido")
   const conditions = [eq(developments.id, id), eq(developments.organizationId, context.organization.id)]
   if (expectedUpdatedAt) conditions.push(eq(developments.updatedAt, new Date(expectedUpdatedAt)))
@@ -129,7 +132,7 @@ export async function saveDevelopmentModulePath(id: string, path: string[], valu
 }
 
 export async function saveDevelopmentModule(id: string, module: string, value: unknown, expectedUpdatedAt?: string) {
-  const context = await requireCompanyRole(["admin", "editor"])
+  const context = await requireDevelopmentRole(id,["admin","admin_empreendimento","editor"])
   const conditions = [eq(developments.id, id), eq(developments.organizationId, context.organization.id)]
   if (expectedUpdatedAt) conditions.push(eq(developments.updatedAt, new Date(expectedUpdatedAt)))
   const beforeRows = await db.select({ data: developments.data }).from(developments).where(and(eq(developments.id, id), eq(developments.organizationId, context.organization.id))).limit(1)
@@ -143,7 +146,7 @@ export async function saveDevelopmentModule(id: string, module: string, value: u
 
 
 export async function listDevelopmentHistory(developmentId: string) {
-  const context = await requireActiveMembership()
+  const context = await requireDevelopmentAccess(developmentId)
   const scoped = await db.select({ id: developments.id }).from(developments).where(and(eq(developments.id, developmentId), eq(developments.organizationId, context.organization.id))).limit(1)
   if (!scoped[0]) throw new Error("Empreendimento não encontrado")
   const rows = await db.select({

@@ -10,9 +10,9 @@ export type ValidationStatus = "rascunho" | "em_elaboracao" | "aguardando_valida
 
 async function transition(id: string, next: ValidationStatus, comment?: string) {
   const context = await requireDevelopmentAccess(id)
-  const role = context.member.role === "owner" ? "admin" : context.member.role
-  if (["rascunho", "em_elaboracao", "ajustes_solicitados", "reenviado"].includes(next) && !canEditContent(role as "admin" | "editor" | "validator")) throw new Error("Somente administradores e editores podem alterar o conteúdo")
-  if (["aguardando_validacao", "aprovado", "publicado"].includes(next) && !canValidateContent(role as "admin" | "editor" | "validator")) throw new Error("Somente administradores e validadores podem validar")
+  const role = context.developmentRole
+  if (["rascunho", "em_elaboracao", "ajustes_solicitados", "reenviado"].includes(next) && !canEditContent(role)) throw new Error("Somente administradores e editores podem alterar o conteúdo")
+  if (["aguardando_validacao", "aprovado", "publicado"].includes(next) && !canValidateContent(role)) throw new Error("Somente administradores e validadores podem validar")
   if (next === "aprovado" && context.development.lastEditorId === context.user.id) throw new Error("Quem editou por último não pode aprovar o próprio conteúdo")
   const version = context.development.version
   await db.update(developments).set({ workflowStatus: next, ...(next === "aprovado" ? { approvedVersion: version, approvedBy: context.user.id, approvedAt: new Date() } : {}), updatedAt: new Date() }).where(and(eq(developments.id, id), eq(developments.organizationId, context.organization.id)))
