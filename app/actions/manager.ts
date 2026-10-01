@@ -10,7 +10,7 @@ import { recordAudit, requirePlatformManager } from "@/lib/organization"
 const hashToken=(token:string)=>createHash("sha256").update(token).digest("hex")
 
 export async function listManagedOrganizations(){
-  await requirePlatformManager()
+  const manager=await requirePlatformManager()
   const [companies,roster,projects]=await Promise.all([
     db.select().from(organizations),
     db.select({id:members.id,organizationId:members.organizationId,userId:members.userId,role:members.role,status:members.status,lastAccessAt:members.lastAccessAt,name:user.name,email:user.email,jobTitle:user.jobTitle,whatsapp:user.whatsapp}).from(members).innerJoin(user,eq(members.userId,user.id)),
@@ -20,7 +20,7 @@ export async function listManagedOrganizations(){
     id:company.id,
     name:company.name,
     logo:company.logo,
-    members:roster.filter(person=>person.organizationId===company.id),
+    members:roster.filter(person=>person.organizationId===company.id && !(person.userId===manager.user.id&&person.role==="owner")),
     developments:projects.filter(project=>project.organizationId===company.id).length,
   }))
 }
