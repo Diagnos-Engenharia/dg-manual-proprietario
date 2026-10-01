@@ -1,15 +1,5 @@
 ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "platformRole" text;
 
--- The existing primary account(s) become platform managers for the migration preview.
--- Their organization membership remains intact so no production data is orphaned.
-UPDATE "user" u
-SET "platformRole" = 'manager'
-WHERE u."platformRole" IS NULL
-  AND EXISTS (
-    SELECT 1 FROM "member" m
-    WHERE m."userId" = u.id AND m.role = 'owner'
-  );
-
 CREATE TABLE IF NOT EXISTS "platform_integration" (
   "id" text PRIMARY KEY,
   "provider" text NOT NULL,
