@@ -40,6 +40,8 @@ check(organization.includes('profile?.accessStatus==="disabled"'),"server author
 check(manager.includes('db.delete(session).where(eq(session.userId,input.userId))'),"disabling an account revokes existing sessions")
 check(manager.includes("ensureAdministratorCoverage"),"last active Administrator is protected on the server")
 check(manager.includes("ensureDevelopmentSelection"),"Constructor access requires server-validated development assignments")
+check(manager.includes('set({accessStatus:"disabled"')&&!manager.includes('db.delete(user).where(eq(user.id,person.userId))'),"removing the last tenant access preserves user identity for audit history")
+check(ai.includes('where(eq(platformIntegrations.provider,"openai"))'),"platform AI actions are scoped to OpenAI instead of an arbitrary provider row")
 check(!ai.match(/return\s+\{[^}]*encryptedKey/),"OpenAI encrypted key is never returned by integration actions")
 check(ai.includes('https://api.openai.com/v1/models/')&&ai.includes("model"),"OpenAI test validates the selected model")
 check(memorial.includes("DADO NÃO CONFIÁVEL")&&memorial.includes('role:"system"'),"Memorial is explicitly treated as untrusted data with separated system instructions")
@@ -52,6 +54,7 @@ check(!publicApi.includes('"Access-Control-Allow-Origin":"*"')&&publicApi.includ
 check(nextConfig.includes("Content-Security-Policy")&&nextConfig.includes("frame-ancestors 'none'")&&nextConfig.includes("object-src 'none'"),"browser security headers include CSP anti-framing and anti-object rules")
 check(nextConfig.includes("Strict-Transport-Security")&&nextConfig.includes("X-Content-Type-Options"),"HSTS and nosniff are configured")
 check(read("migrations/0015_tenant_integrity_constraints.sql").includes("assignment_development_tenant_fk"),"database enforces tenant integrity for development assignments")
+check(read("migrations/0016_organization_integrity_constraints.sql").includes("member_organization_fk")&&read("migrations/0016_organization_integrity_constraints.sql").includes("ON DELETE RESTRICT"),"database blocks organization deletion while tenant resources still reference it")
 
 const sourceFiles=[...walk("app"),...walk("components"),...walk("lib")]
 const rawHtml=sourceFiles.filter(p=>read(p).includes("dangerouslySetInnerHTML"))
