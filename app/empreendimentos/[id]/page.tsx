@@ -1,22 +1,32 @@
 import Link from "next/link"
 import { notFound,redirect } from "next/navigation"
+import { headers } from "next/headers"
 import { ChevronLeft } from "lucide-react"
 import { AppShell } from "@/components/dashboard/app-shell"
 import { EmpreendimentoWorkspace } from "@/components/empreendimentos/empreendimento-workspace"
 import { statusLabels, formatDate } from "@/lib/mock-data"
 import { getDevelopment, listDatabookFiles } from "@/app/actions/developments"
 import { isCurrentUserPlatformManager,requireDevelopmentAccess } from "@/lib/organization"
+import { auth } from "@/lib/auth"
+import { developmentSignInHref,type AuthRedirectSearchParams } from "@/lib/auth-redirect"
 
 export const dynamic = "force-dynamic"
 
 export default async function EmpreendimentoDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  searchParams: Promise<AuthRedirectSearchParams>
 }) {
-  if(await isCurrentUserPlatformManager())redirect("/gerenciador")
   const { id } = await params
-  const context = await requireDevelopmentAccess(id).catch(() => notFound())
+  const session = await auth.api.getSession({ headers: await headers() })
+  if (!session?.user) redirect(developmentSignInHref(id, await searchParams))
+  if(await isCurrentUserPlatformManager())redirect("/gerenciador")
+  const context = await requireDevelopmentAccess(id).catch(error => {
+    if (error instanceof Error && ["Organização não configurada", "Empreendimento não encontrado", "Acesso não autorizado a este empreendimento", "Perfil de acesso inválido"].includes(error.message)) notFound()
+    throw error
+  })
   const persisted = await getDevelopment(id)
   if (!persisted) notFound()
   const databookFiles = await listDatabookFiles(id)

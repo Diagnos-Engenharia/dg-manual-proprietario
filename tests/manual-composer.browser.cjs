@@ -56,6 +56,14 @@ const commands = preview => preview.layout.pages.flatMap(page => page.commands).
     for(const system of checklist) for(const scope of system.scopes) for(const section of ['sistemas','manutencao']) await pool.query('INSERT INTO development_content_validation(id,"developmentId","organizationId","contextKey",section,status,"lastEditorId") VALUES($1,$2,$3,$4,$5,$6,$7)',[`${system.id}-${scope}-${section}-${suffix}`,dev,org,system.id+'::'+scope,section,scope==='comum'?'aprovado':section==='manutencao'&&system.id==='rejected'?'aprovado':section==='manutencao'&&system.id==='approved'?'rascunho':states[system.id],editorId])
     const finishingId = 'finishing-'+suffix
     await pool.query('INSERT INTO finishing_table(id,"developmentId","organizationId",tower,typology,"unitModel",area,status,data,"lastEditorId") VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[finishingId,dev,org,'Torre A','Tipologia 01','Apto 101','70','rascunho',{ambientes:[{id:'room',ambiente:'Cozinha',pisoRodapeBancada:'Porcelanato',parede:'Cerâmica',teto:'Gesso'}],materiais:[{id:'material',material:'Piso',aplicacao:'Piso',ambiente:'Cozinha',marca:'FABRICANTE_APROVADO',linha:'Acetinado',referencia:'São João',formato:'60 x 60'}]},editorId])
+    const loginTarget='/empreendimentos/'+dev+'?modulo=elaboracao&aba=textos&manual=proprietario&item=approved%3A%3Aunidade&conteudo=manutencao'
+    const guestAccess=await anonymous.get(loginTarget,{maxRedirects:0})
+    assert.equal(guestAccess.status(),307,await guestAccess.text())
+    const loginLocation=new URL(guestAccess.headers().location,origin)
+    assert.equal(loginLocation.pathname,'/sign-in')
+    assert.equal(loginLocation.searchParams.get('next'),loginTarget)
+    assert.equal((await outsider.get(loginTarget,{maxRedirects:0})).status(),404)
+    assert.equal((await admin.get('/empreendimentos/missing-development',{maxRedirects:0})).status(),404)
     async function preview(type) { const result = await admin.post('/api/manuals/preview',{data:{developmentId:dev,manualType:type}});assert.equal(result.status(),200,await result.text());return result.json() }
     assert.equal((await anonymous.post('/api/manuals/preview',{data:{developmentId:dev}})).status(),401)
     for(const endpoint of ['preview','compile','editorial']) assert.equal((await outsider.post('/api/manuals/'+endpoint,{data:{developmentId:dev}})).status(),404)
@@ -99,6 +107,23 @@ const commands = preview => preview.layout.pages.flatMap(page => page.commands).
     await fs.writeFile(path.join(directory,'fixture.json'),JSON.stringify({developmentId:dev,organizationId:org,adminEmail:'admin-'+suffix+'@example.test'}))
     await fs.writeFile(path.join(directory,'auth.json'),JSON.stringify(await admin.storageState()))
     browser=await chromium.launch({headless:true,...(process.env.TEST_BROWSER_EXECUTABLE?{executablePath:process.env.TEST_BROWSER_EXECUTABLE}:{} )})
+    const guestContext=await browser.newContext({viewport:{width:1280,height:900}})
+    try {
+      const guestPage=await guestContext.newPage()
+      await guestPage.goto(origin+loginTarget)
+      await guestPage.getByRole('heading',{name:'Bem-vindo de volta',exact:true}).waitFor()
+      assert.equal(new URL(guestPage.url()).searchParams.get('next'),loginTarget)
+      await guestPage.getByLabel('Usuário ou E-mail',{exact:true}).fill('admin-'+suffix+'@example.test')
+      await guestPage.getByLabel('Senha',{exact:true}).fill('ComposerTest!2026-isolated')
+      await guestPage.getByRole('button',{name:'ENTRAR NA MINHA CONTA',exact:true}).click()
+      await guestPage.waitForURL(url=>url.pathname==='/empreendimentos/'+dev&&url.searchParams.get('aba')==='textos'&&url.searchParams.get('conteudo')==='manutencao')
+      await guestPage.getByRole('heading',{name:'Textos técnicos',exact:true}).waitFor()
+      await guestPage.getByRole('tab',{name:'Manutenção',exact:true}).waitFor()
+      assert.equal(await guestPage.getByRole('tab',{name:'Manutenção',exact:true}).getAttribute('aria-selected'),'true')
+      assert.equal(new URL(guestPage.url()).searchParams.get('item'),'approved::unidade')
+      await guestPage.screenshot({path:path.join(directory,'login-retoma-textos-tecnicos.png')})
+      console.log('PREVIEW_LOGIN_PASS: anonymous deep link redirects to login, login restores exact manual/item/maintenance destination, unauthorized tenant and missing development remain 404')
+    } finally {await guestContext.close()}
     const context=await browser.newContext({viewport:{width:1600,height:1100},storageState:await admin.storageState()})
     const page=await context.newPage();const errors=[];page.on('pageerror',error=>errors.push(error.message))
     await page.goto(origin+'/empreendimentos/'+dev+'?modulo=emissao')
