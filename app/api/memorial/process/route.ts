@@ -93,20 +93,6 @@ async function analyzeOpenAi(input:{apiKey:string;model:string;filename:string;b
   return sanitize(JSON.parse(text))
 }
 
-async function analyzeGoogle(input:{apiKey:string;model:string;mime:string;bytes:Buffer;text?:string}){
-  const parts:Record<string,unknown>[]=[{text:prompt()}]
-  if(input.text)parts.push({text:"DOCUMENTO:\n"+input.text})
-  else parts.push({inlineData:{mimeType:input.mime||"application/pdf",data:input.bytes.toString("base64")}})
-  const response=await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(input.model)+":generateContent",{method:"POST",headers:{"x-goog-api-key":input.apiKey,"Content-Type":"application/json"},body:JSON.stringify({
-    contents:[{role:"user",parts}],generationConfig:{responseMimeType:"application/json",responseJsonSchema:outputSchema,temperature:0},
-  }),signal:AbortSignal.timeout(55000)})
-  const payload=await response.json().catch(()=>({})) as {error?:{message?:string};candidates?:Array<{content?:{parts?:Array<{text?:string}>}}>}
-  if(!response.ok)throw new Error("Google AI: "+(payload.error?.message??("HTTP "+response.status)))
-  const text=(payload.candidates??[]).flatMap(candidate=>candidate.content?.parts??[]).map(part=>part.text??"").join("")
-  if(!text)throw new Error("Google AI não retornou a análise estruturada")
-  return sanitize(JSON.parse(text))
-}
-
 function escapeHtml(value:string){return value.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;")}
 function applyVariables(template:string,details:Detail[]){
   const values=new Map(details.map(detail=>[detail.key.trim().toLowerCase(),detail.value]))
@@ -147,9 +133,7 @@ export async function POST(request:Request){
     const bytes=await bytesFromBlob(memorial.pathname)
     let text:string|undefined
     if(/\.docx$/i.test(memorial.filename)||memorial.contentType==="application/vnd.openxmlformats-officedocument.wordprocessingml.document")text=(await mammoth.extractRawText({buffer:bytes})).value.slice(0,500000)
-    const analysis=runtime.provider==="openai"
-      ?await analyzeOpenAi({apiKey:runtime.apiKey,model:runtime.model,filename:memorial.filename,bytes,text})
-      :await analyzeGoogle({apiKey:runtime.apiKey,model:runtime.model,mime:memorial.contentType??"application/pdf",bytes,text})
+    const analysis=await analyzeOpenAi({apiKey:runtime.apiKey,model:runtime.model,filename:memorial.filename,bytes,text})
 
     const confirmed=analysis.findings.filter(f=>f.confidence>=80),review=analysis.findings.filter(f=>f.confidence>=50&&f.confidence<80),ignored=analysis.findings.filter(f=>f.confidence<50)
     const development=(await db.select().from(developments).where(and(eq(developments.id,memorial.developmentId),eq(developments.organizationId,context.organization.id))).limit(1))[0]

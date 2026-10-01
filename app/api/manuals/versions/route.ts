@@ -9,6 +9,7 @@ export async function GET(request: Request) {
   const developmentId = url.searchParams.get("developmentId")
   const manualType = url.searchParams.get("manualType") ?? "proprietario"
   if (!developmentId) return NextResponse.json({ error: "Empreendimento não informado" }, { status: 400 })
+  if(manualType!=="proprietario"&&manualType!=="sindico")return NextResponse.json({error:"Tipo de manual inválido"},{status:400})
   const context = await requireDevelopmentAccess(developmentId)
   const versions = await db.select({
     id:manualVersions.id,
@@ -24,5 +25,5 @@ export async function GET(request: Request) {
     finishingRows:manualVersions.finishingRows,
     createdAt:manualVersions.createdAt,
   }).from(manualVersions).where(and(eq(manualVersions.developmentId, developmentId), eq(manualVersions.organizationId, context.organization.id), eq(manualVersions.manualType, manualType))).orderBy(desc(manualVersions.revision))
-  return NextResponse.json({ versions })
+  return NextResponse.json({ versions },{headers:{"Cache-Control":"private, no-store"}})
 }

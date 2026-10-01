@@ -44,6 +44,7 @@ check(manager.includes('set({accessStatus:"disabled"')&&!manager.includes('db.de
 check(ai.includes('where(eq(platformIntegrations.provider,"openai"))'),"platform AI actions are scoped to OpenAI instead of an arbitrary provider row")
 check(!ai.match(/return\s+\{[^}]*encryptedKey/),"OpenAI encrypted key is never returned by integration actions")
 check(ai.includes('https://api.openai.com/v1/models/')&&ai.includes("model"),"OpenAI test validates the selected model")
+check(!memorial.includes("generativelanguage.googleapis.com"),"Memorial processing has no legacy Google AI execution path")
 check(memorial.includes("DADO NÃO CONFIÁVEL")&&memorial.includes('role:"system"'),"Memorial is explicitly treated as untrusted data with separated system instructions")
 check(memorial.includes("store:false")&&memorial.includes("data:application/pdf;base64,"),"OpenAI processing disables storage and uses an explicit PDF data URL")
 check(memorial.includes("consumeRateLimit"),"AI processing is rate limited")
