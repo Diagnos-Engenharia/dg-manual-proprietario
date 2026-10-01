@@ -1,5 +1,8 @@
 import { betterAuth } from "better-auth"
-import { pool } from "@/lib/db"
+import { APIError, createAuthMiddleware } from "better-auth/api"
+import { eq } from "drizzle-orm"
+import { db, pool } from "@/lib/db"
+import { user as userTable } from "@/lib/db/schema"
 
 function toOrigin(value?: string) {
   if (!value) return null
@@ -32,6 +35,17 @@ export const auth = betterAuth({
     toOrigin(process.env.V0_RUNTIME_URL) ??
     (process.env.NODE_ENV === "development" ? "http://localhost:3000" : undefined),
   emailAndPassword: { enabled: true, autoSignIn: true },
+  hooks: {
+    before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== "/sign-in/email") return
+      const email=String(ctx.body?.email??"").trim().toLowerCase()
+      if(!email)return
+      const profile=(await db.select({accessStatus:userTable.accessStatus}).from(userTable).where(eq(userTable.email,email)).limit(1))[0]
+      if(profile?.accessStatus==="disabled"){
+        throw new APIError("FORBIDDEN",{message:"Esta conta está inativa. Solicite a reativação ao Gerenciador."})
+      }
+    }),
+  },
   trustedOrigins: [
     ...(process.env.NODE_ENV === "development"
       ? [
