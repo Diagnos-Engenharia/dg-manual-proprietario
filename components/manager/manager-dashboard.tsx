@@ -31,7 +31,7 @@ export function ManagerDashboard({companies,aiIntegration,managerName}:{companie
   const [invite,setInvite]=useState({organizationId:"",name:"",email:""})
   const [inviteLink,setInviteLink]=useState("")
   const [provider,setProvider]=useState<PlatformAiProvider>(aiIntegration?.provider??"openai")
-  const [model,setModel]=useState(aiIntegration?.config.model??"gpt-5.6-luna")
+  const [model,setModel]=useState(aiIntegration?.config.model??"")
   const [apiKey,setApiKey]=useState("")
   const filtered=useMemo(()=>companies.filter(company=>{
     const haystack=[company.name,...company.members.flatMap(member=>[member.name,member.email])].join(" ").toLowerCase()
@@ -115,7 +115,7 @@ export function ManagerDashboard({companies,aiIntegration,managerName}:{companie
       {tab==="settings"&&<div className="grid gap-5 lg:grid-cols-[1.15fr_.85fr]">
         <Card><CardHeader><CardTitle>Motor de IA do Memorial Descritivo</CardTitle></CardHeader><CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">Esta credencial é global do DG Manual. As construtoras não terão acesso à chave. O motor será usado para identificar itens do checklist e extrair variáveis do Memorial; os textos técnicos virão da biblioteca padronizada.</p>
-          <div className="grid gap-4 sm:grid-cols-2"><div className="space-y-1.5"><Label>Provedor</Label><select value={provider} onChange={event=>setProvider(event.target.value as PlatformAiProvider)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="openai">OpenAI</option><option value="google_ai">Google AI</option></select></div><div className="space-y-1.5"><Label>Modelo</Label><Input value={model} onChange={event=>setModel(event.target.value)} placeholder="Modelo"/></div></div>
+          <div className="grid gap-4 sm:grid-cols-2"><div className="space-y-1.5"><Label>Provedor</Label><select value={provider} onChange={event=>setProvider(event.target.value as PlatformAiProvider)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="openai">OpenAI</option><option value="google_ai">Google AI</option></select></div><div className="space-y-1.5"><Label>Modelo</Label><Input value={model} onChange={event=>setModel(event.target.value)} placeholder="Informe o modelo do provedor"/></div></div>
           <div className="space-y-1.5"><Label>Chave da API</Label><Input type="password" autoComplete="off" value={apiKey} onChange={event=>setApiKey(event.target.value)} placeholder={aiIntegration?"•••••••• (deixe vazio para manter)":"Insira a credencial"}/></div>
           <div className="flex flex-wrap gap-2"><Button disabled={busy||(!apiKey&&!aiIntegration)||!model.trim()} onClick={()=>void run(async()=>{await savePlatformAiIntegration({provider,apiKey,model});setApiKey("");setFeedback("Configuração do motor salva.")})}><KeyRound className="h-4 w-4"/>Salvar</Button>{aiIntegration&&<Button variant="outline" disabled={busy} onClick={()=>void run(async()=>{const result=await testPlatformAiIntegration();setFeedback(result.message)})}>Testar conexão</Button>}{aiIntegration&&<Button variant="ghost" disabled={busy} onClick={()=>void run(async()=>{await removePlatformAiIntegration();setFeedback("Configuração removida.")})}>Remover</Button>}</div>
         </CardContent></Card>
