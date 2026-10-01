@@ -15,7 +15,7 @@ const phaseNames=["Ficha Técnica do Empreendimento","Checklist Inicial","Manual
 const defaultWeights=[25,25,25,25]
 type DateRow={name:string;start:string;end:string;weight:number}
 type Props={open:boolean;onOpenChange:(open:boolean)=>void;organizationName:string}
-type UploadResult={id:string;filename:string;status:string;provider:string|null;model:string|null;error?:string}
+type UploadResult={id:string;filename:string;status:string;provider:string|null;model:string|null;error?:string}\ntype ProcessFinding={checklistItemId:string;label:string;category:string;scopes:string[];confidence:number;page:number|null;evidence:string}\ntype ProcessResult={summary:{total:number;confirmed:number;review:number;ignored:number;threshold:number};findings:ProcessFinding[];error?:string}
 
 function validIsoDate(value:string){if(!/^\d{4}-\d{2}-\d{2}$/.test(value))return false;const date=new Date(`${value}T00:00:00`);return date.getFullYear()>=2000&&date.getFullYear()<=2100&&date.toISOString().slice(0,10)===value}
 function dateError(row:DateRow){if(!validIsoDate(row.start)||!validIsoDate(row.end))return"Informe datas válidas entre 2000 e 2100.";if(row.end<row.start)return"A data final não pode ser anterior à inicial.";return""}
@@ -29,7 +29,7 @@ export function NewManualWizard({open,onOpenChange,organizationName}:Props){
   const [form,setForm]=useState({name:"",towers:"",apartments:"",typologies:"",areas:"",completionDate:""})
   const [dates,setDates]=useState<DateRow[]>(()=>phaseNames.map((name,index)=>({name,start:"",end:"",weight:defaultWeights[index]})))
   const [memorial,setMemorial]=useState<File|null>(null)
-  const [uploadResult,setUploadResult]=useState<UploadResult|null>(null)
+  const [uploadResult,setUploadResult]=useState<UploadResult|null>(null)\n  const [processResult,setProcessResult]=useState<ProcessResult|null>(null)
   const weightTotal=dates.reduce((sum,item)=>sum+(Number.isFinite(item.weight)?item.weight:0),0)
   const validFicha=Boolean(form.name&&form.towers&&form.apartments&&form.typologies&&form.areas&&validIsoDate(form.completionDate))
   const dateErrors=dates.map(item=>dateError(item))
@@ -39,7 +39,7 @@ export function NewManualWizard({open,onOpenChange,organizationName}:Props){
   const updateDate=(index:number,key:"start"|"end"|"weight",value:string)=>setDates(current=>current.map((phase,i)=>i===index?{...phase,[key]:key==="weight"?Number(value):value}:phase))
 
   function reset(){
-    setStep(0);setSubmitting(false);setError(null);setCreatedId("");setMemorial(null);setUploadResult(null)
+    setStep(0);setSubmitting(false);setError(null);setCreatedId("");setMemorial(null);setUploadResult(null);setProcessResult(null)
     setForm({name:"",towers:"",apartments:"",typologies:"",areas:"",completionDate:""})
     setDates(phaseNames.map((name,index)=>({name,start:"",end:"",weight:defaultWeights[index]})))
   }
@@ -73,7 +73,7 @@ export function NewManualWizard({open,onOpenChange,organizationName}:Props){
   }
 
   function chooseMemorial(event:ChangeEvent<HTMLInputElement>){
-    setUploadResult(null);setError(null)
+    setUploadResult(null);setProcessResult(null);setError(null)
     setMemorial(event.target.files?.[0]??null)
   }
 
@@ -107,7 +107,16 @@ export function NewManualWizard({open,onOpenChange,organizationName}:Props){
           <Card className="p-5"><div className="flex items-center gap-2"><FileText className="h-5 w-5 text-primary"/><h3 className="font-semibold">Importar Memorial</h3></div><p className="mt-2 text-sm text-muted-foreground">PDF ou DOCX, até 25 MB.</p><label className="mt-4 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 px-4 py-8 text-center hover:bg-muted/40"><Upload className="mb-2 h-6 w-6 text-muted-foreground"/><span className="text-sm font-medium">{memorial?.name??"Selecionar Memorial Descritivo"}</span><span className="mt-1 text-xs text-muted-foreground">{memorial?Math.ceil(memorial.size/1024)+" KB":"Clique para escolher o arquivo"}</span><input type="file" className="hidden" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={chooseMemorial}/></label>{!uploadResult&&<Button className="mt-4 w-full" disabled={!memorial||submitting} onClick={()=>void uploadMemorial()}>{submitting?"Enviando…":"Enviar Memorial"}</Button>}</Card>
           <Card className="p-5"><h3 className="font-semibold">O que será pré-cadastrado</h3><div className="mt-4 space-y-3 text-sm"><div className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-success"/><span>Itens identificados no Checklist Inicial.</span></div><div className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-success"/><span>Escopo em Unidades privativas e Áreas comuns quando houver evidência.</span></div><div className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-success"/><span>Fonte documental e evidências para conferência.</span></div><div className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-success"/><span>Texto-base dos Sistemas Construtivos a partir da biblioteca técnica.</span></div></div></Card>
         </div>
-        {uploadResult&&<div className="rounded-lg border border-success/30 bg-success/5 p-4 text-sm"><p className="font-medium text-success">Memorial registrado com sucesso</p><p className="mt-1 text-muted-foreground">{uploadResult.status==="ready_to_process"?`Motor disponível: ${uploadResult.provider??"IA"} · ${uploadResult.model??"modelo configurado"}. O documento está preparado para o processamento estruturado.`:"O arquivo está preservado. O Gerenciador precisa configurar o motor de IA para que o processamento estruturado seja habilitado."}</p></div>}
+        {uploadResult&&<div className="rounded-lg border border-success/30 bg-success/5 p-4 text-sm">
+          <p className="font-medium text-success">{uploadResult.status==="processed"?"Pré-cadastro concluído":"Memorial registrado com sucesso"}</p>
+          <p className="mt-1 text-muted-foreground">{uploadResult.status==="ready_to_process"?`Motor disponível: ${uploadResult.provider??"IA"} · ${uploadResult.model??"modelo configurado"}. Analise o Memorial para preencher o checklist e os textos-base.`:uploadResult.status==="processed"?"O checklist e os Sistemas Construtivos foram atualizados somente com os itens de alta confiança.":"O arquivo está preservado. O Gerenciador precisa configurar o motor de IA para habilitar o processamento estruturado."}</p>
+          {uploadResult.status==="ready_to_process"&&!processResult&&<Button className="mt-3" disabled={submitting} onClick={()=>void processMemorial()}><BrainCircuit className="h-4 w-4"/>{submitting?"Analisando Memorial…":"Analisar e pré-cadastrar"}</Button>}
+        </div>}
+        {processResult&&<div className="space-y-3 rounded-lg border border-border bg-card p-4">
+          <div className="flex flex-wrap gap-2"><span className="rounded-md bg-success/10 px-2.5 py-1 text-xs font-medium text-success">{processResult.summary.confirmed} confirmados</span><span className="rounded-md bg-warning/10 px-2.5 py-1 text-xs font-medium text-warning-foreground">{processResult.summary.review} para conferência</span><span className="rounded-md bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">{processResult.summary.ignored} baixa confiança</span></div>
+          <p className="text-xs text-muted-foreground">Somente itens com confiança ≥ {processResult.summary.threshold}% foram marcados automaticamente como “Possui”. Os demais permanecem para revisão humana.</p>
+          <div className="max-h-56 space-y-2 overflow-y-auto">{processResult.findings.filter(item=>item.confidence>=50).map(item=><div key={item.checklistItemId} className="rounded-md border border-border p-3 text-xs"><div className="flex items-start justify-between gap-3"><div><p className="font-medium text-foreground">{item.label}</p><p className="text-muted-foreground">{item.category} · {item.scopes.join(" + ")}</p></div><span className={item.confidence>=80?"font-mono font-semibold text-success":"font-mono font-semibold text-warning"}>{item.confidence}%</span></div>{item.evidence&&<p className="mt-2 text-muted-foreground">{item.page?`Pág. ${item.page} · `:""}{item.evidence}</p>}</div>)}</div>
+        </div>}
       </div>}
 
       {error&&<div role="alert" className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"><AlertCircle className="h-4 w-4"/>{error}</div>}
