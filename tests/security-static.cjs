@@ -33,6 +33,7 @@ const nextConfig=read("next.config.mjs")
 
 check(auth.includes('ctx.path==="/sign-in/email"')&&auth.includes('accessStatus==="disabled"'),"login rejects globally disabled accounts")
 check(auth.includes('storage: "database"')&&auth.includes('"/sign-in/email"'),"authentication uses persistent rate limiting")
+check(auth.includes("httpOnly: true")&&auth.includes("sameSite:")&&auth.includes("secure: true"),"session cookies are explicitly hardened")
 check(auth.includes('ctx.path==="/sign-up/email"')&&auth.includes('"x-dg-invite"')&&auth.includes("organizationInvitations"),"account registration requires a valid invitation token")
 check(organization.includes('isManager: platformRole === "manager"')&&!organization.includes("legacyOwner"),"platform Manager requires explicit platform role")
 check(organization.includes('profile?.accessStatus==="disabled"'),"server authorization rejects disabled accounts")
@@ -47,8 +48,10 @@ check(memorial.includes("consumeRateLimit"),"AI processing is rate limited")
 check(memorialUpload.includes('access:"private"')&&brandUpload.includes('access: "private"')&&databookUpload.includes('access: "private"'),"document and image uploads use private Blob storage")
 check(memorialUpload.includes("assertMemorialFile")&&brandUpload.includes("assertImageFile")&&databookUpload.includes("assertDatabookFile"),"upload routes validate content beyond filename extension")
 check(publicApi.includes("public-api-ip:")&&publicApi.includes("public-api-key:"),"public API is rate limited by IP and API key")
+check(!publicApi.includes('"Access-Control-Allow-Origin":"*"')&&publicApi.includes("PUBLIC_API_ALLOWED_ORIGINS"),"public API CORS requires explicitly configured origins")
 check(nextConfig.includes("Content-Security-Policy")&&nextConfig.includes("frame-ancestors 'none'")&&nextConfig.includes("object-src 'none'"),"browser security headers include CSP anti-framing and anti-object rules")
 check(nextConfig.includes("Strict-Transport-Security")&&nextConfig.includes("X-Content-Type-Options"),"HSTS and nosniff are configured")
+check(read("migrations/0015_tenant_integrity_constraints.sql").includes("assignment_development_tenant_fk"),"database enforces tenant integrity for development assignments")
 
 const sourceFiles=[...walk("app"),...walk("components"),...walk("lib")]
 const rawHtml=sourceFiles.filter(p=>read(p).includes("dangerouslySetInnerHTML"))
