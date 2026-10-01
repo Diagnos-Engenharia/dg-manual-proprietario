@@ -60,7 +60,8 @@ export async function savePlatformAiIntegration(input:{apiKey:string;model:strin
     await consumeRateLimit("platform-ai-save:"+context.user.id,{max:20,windowSeconds:3600})
     const apiKey=input.apiKey.trim()
     const model=input.model.trim()
-    if(!model)throw new Error("Informe o modelo da OpenAI que será utilizado")
+    if(!model||model.length>200)throw new Error("Informe um modelo OpenAI válido de até 200 caracteres")
+    if(apiKey.length>8192)throw new Error("A chave da OpenAI excede o tamanho permitido")
     const existing=(await db.select().from(platformIntegrations).limit(1))[0]
     if(!apiKey&&!existing)throw new Error("Informe a chave da API da OpenAI")
     if(!apiKey&&existing?.provider!=="openai")throw new Error("Informe uma chave da OpenAI para substituir a integração atual")
