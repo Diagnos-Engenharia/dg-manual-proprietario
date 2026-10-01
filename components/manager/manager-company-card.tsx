@@ -129,7 +129,7 @@ function DevelopmentSelector({developments,selected,onChange}:{developments:Deve
 function MemberRow({member,company,busy,execute}:{member:ManagedMember;company:ManagedCompany;busy:boolean;execute:<T>(fn:()=>Promise<ManagerActionResult<T>>)=>Promise<ManagerActionResult<T>>}){
   const [role,setRole]=useState<"admin"|"editor">(member.role==="owner"||member.role==="admin"?"admin":"editor")
   const [developmentIds,setDevelopmentIds]=useState<string[]>(member.assignments)
-  const enabled=member.accessStatus==="active"
+  const enabled=member.accessStatus==="active"&&member.status==="active"
 
   async function toggleAccess(){
     const status=enabled?"disabled":"active"
