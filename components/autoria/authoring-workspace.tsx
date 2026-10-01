@@ -1,51 +1,64 @@
 "use client"
 
-import { useEffect,useMemo,useRef,useState } from "react"
+import { useCallback,useEffect,useRef,useState } from "react"
 import { usePathname,useRouter,useSearchParams } from "next/navigation"
-import { Boxes,Contact,Droplets,FileText,History,ListChecks } from "lucide-react"
+import { Contact,Droplets,FileText,History,ListChecks } from "lucide-react"
 import { useDevelopmentStore } from "@/lib/store"
-import { linkedSystemItems,type ChecklistItem,type ChecklistStatus,type ChecklistScope } from "@/lib/mock-data"
-import { checklistProgress } from "@/lib/progress"
+import { type ChecklistItem,type ChecklistStatus,type ChecklistScope } from "@/lib/mock-data"
 import { ChecklistInicial } from "@/components/autoria/checklist-inicial"
 import { ProjetistasFornecedores } from "@/components/autoria/projetistas-fornecedores"
-import { SistemasConstrutivos } from "@/components/autoria/sistemas-construtivos"
 import { Comissionamento } from "@/components/autoria/comissionamento"
 import { TabelaAcabamentos } from "@/components/autoria/tabela-acabamentos"
 import { DevelopmentHistory } from "@/components/autoria/development-history"
-import { Badge } from "@/components/ui/badge"
+import { TextosManual } from "@/components/autoria/textos-manual"
 import { PersistenceStatus } from "@/hooks/use-persistence-status"
 import { saveDevelopmentModulePath } from "@/app/actions/developments"
 import { cn } from "@/lib/utils"
-import type { ManualContent } from "@/lib/manual-content"
+import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
-type SubTabId="checklist"|"sistemas"|"comissionamento"|"acabamentos"|"contatos"|"historico"
+type SubTabId="checklist"|"textos"|"comissionamento"|"acabamentos"|"contatos"|"historico"
 const subTabs=[
   {id:"checklist",label:"Checklist Inicial",icon:ListChecks},
-  {id:"sistemas",label:"Sistemas Construtivos",icon:Boxes},
   {id:"comissionamento",label:"Comissionamento",icon:Droplets},
+  {id:"textos",label:"Textos técnicos",icon:FileText},
   {id:"acabamentos",label:"Tabela de Acabamentos",icon:FileText},
   {id:"contatos",label:"Projetistas e Fornecedores",icon:Contact},
   {id:"historico",label:"Histórico",icon:History},
 ] as const
 
-export function AuthoringWorkspace({role,developmentId}:{role:"admin"|"editor"|"validator";developmentId:string}){
+export function AuthoringWorkspace({role,developmentId,onUnsavedChange}:{role:"admin"|"editor"|"validator";developmentId:string;onUnsavedChange?:(dirty:boolean,discard?:()=>void)=>void}){
   const router=useRouter(),pathname=usePathname(),searchParams=useSearchParams()
   const requestedTab=searchParams.get("aba")
-  const requested=subTabs.some(tab=>tab.id===requestedTab)?requestedTab as SubTabId:null
+  const requested=requestedTab==="sistemas"?"textos":subTabs.some(tab=>tab.id===requestedTab)?requestedTab as SubTabId:null
   const development=useDevelopmentStore(state=>state.developments[developmentId])
   const updateChecklistItem=useDevelopmentStore(state=>state.updateChecklistItem)
   const [activeTab,setActiveTab]=useState<SubTabId>(requested??"checklist")
   const [checklistSaving,setChecklistSaving]=useState(false)
   const [checklistError,setChecklistError]=useState<string|null>(null)
+  const [finishingDirty,setFinishingDirty]=useState(false)
+  const [pendingTab,setPendingTab]=useState<SubTabId|null>(null)
+  const discardFinishing=useRef<(()=>void)|null>(null)
+  const finishingChanged=useCallback((dirty:boolean,discard?:()=>void)=>{setFinishingDirty(dirty);if(discard)discardFinishing.current=discard;onUnsavedChange?.(dirty,discard)},[onUnsavedChange])
   const queue=useRef(Promise.resolve())
+  const checklistWriteSequence=useRef(0)
   const canEdit=role==="admin"||role==="editor"
   const checklist=development?.checklist??[]
-  const linked=useMemo(()=>linkedSystemItems(checklist),[checklist])
-  const progress=useMemo(()=>checklistProgress(checklist),[checklist])
-  const manuals=(development?.manuals??{}) as Record<string,ManualContent>
 
-  useEffect(()=>{if(requested)setActiveTab(requested)},[requested])
+  useEffect(()=>{setActiveTab(requested??"checklist")},[requested])
+  useEffect(()=>{
+    if(requestedTab!=="sistemas")return
+    const params=new URLSearchParams(searchParams.toString())
+    params.set("aba","textos")
+    if(!params.has("item")&&!params.has("secao"))params.set("secao","sistemas")
+    router.replace(pathname+"?"+params.toString(),{scroll:false})
+  },[requestedTab,searchParams,pathname,router])
   function selectTab(tab:SubTabId){
+    if(tab==="textos"&&(checklistSaving||checklistError))return
+    if(finishingDirty&&tab!==activeTab){setPendingTab(tab);return}
+    navigateTab(tab)
+  }
+  function navigateTab(tab:SubTabId){
     setActiveTab(tab)
     const params=new URLSearchParams(searchParams.toString())
     params.set("modulo","elaboracao")
@@ -54,10 +67,11 @@ export function AuthoringWorkspace({role,developmentId}:{role:"admin"|"editor"|"
   }
 
   function persistChecklist(next:ChecklistItem[]){
+    const sequence=++checklistWriteSequence.current
     setChecklistSaving(true);setChecklistError(null)
     queue.current=queue.current.catch(()=>{}).then(async()=>{await saveDevelopmentModulePath(developmentId,["checklist"],next)})
-      .catch(error=>setChecklistError(error instanceof Error?error.message:"Erro ao salvar checklist"))
-      .finally(()=>setChecklistSaving(false))
+      .catch(error=>{if(sequence===checklistWriteSequence.current)setChecklistError(error instanceof Error?error.message:"Erro ao salvar checklist")})
+      .finally(()=>{if(sequence===checklistWriteSequence.current)setChecklistSaving(false)})
   }
   function setStatus(id:string,status:ChecklistStatus){
     const current=useDevelopmentStore.getState().developments[developmentId].checklist
@@ -71,18 +85,19 @@ export function AuthoringWorkspace({role,developmentId}:{role:"admin"|"editor"|"
   }
 
   return <div className="flex flex-col gap-5">
-    <div className="flex justify-end"><Badge variant="outline">Checklist {progress}%</Badge></div>
     <div className="flex flex-wrap justify-center gap-1 border-b border-border pb-px">
-      {subTabs.map(tab=>{const Icon=tab.icon;return <button key={tab.id} onClick={()=>selectTab(tab.id)} className={cn("flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium",activeTab===tab.id?"border-primary text-foreground":"border-transparent text-muted-foreground hover:text-foreground")}><Icon className="h-4 w-4"/>{tab.label}{tab.id==="sistemas"&&<Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">{linked.length}</Badge>}</button>})}
+      {subTabs.map(tab=>{const Icon=tab.icon;return <button key={tab.id} onClick={()=>selectTab(tab.id)} disabled={tab.id==="textos"&&(checklistSaving||Boolean(checklistError))} title={tab.id==="textos"?(checklistSaving?"Aguarde o salvamento do checklist":checklistError?"Tente salvar o checklist novamente para atualizar os sistemas":undefined):undefined} className={cn("flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60",activeTab===tab.id?"border-primary text-foreground":"border-transparent text-muted-foreground hover:text-foreground")}><Icon className="h-4 w-4"/>{tab.label}</button>})}
     </div>
     <div className="flex min-w-0 flex-col gap-4">
-      {!canEdit&&activeTab!=="historico"&&activeTab!=="sistemas"&&<p className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">Somente leitura.</p>}
+      {!canEdit&&activeTab!=="historico"&&activeTab!=="textos"&&<p className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">Somente leitura.</p>}
+      {activeTab!=="checklist"&&(checklistSaving||checklistError)&&<PersistenceStatus state={checklistError?"error":"saving"} savedAt={null} error={checklistError} onRetry={()=>persistChecklist(checklist)}/>}
       {activeTab==="checklist"&&<><ChecklistInicial items={checklist} onChangeStatus={setStatus} onChangeScopes={setScopes} disabled={!canEdit}/><PersistenceStatus state={checklistError?"error":checklistSaving?"saving":"clean"} savedAt={null} error={checklistError} onRetry={()=>persistChecklist(checklist)}/></>}
-      {activeTab==="sistemas"&&<SistemasConstrutivos items={linked} developmentId={developmentId} role={role} initialContents={{unidade:manuals.proprietario?.sistemas??{},comum:manuals.sindico?.sistemas??{}}} initialMaintenance={{unidade:manuals.proprietario?.manutencao??{},comum:manuals.sindico?.manutencao??{}}}/>}
+      {activeTab==="textos"&&<TextosManual key={developmentId} developmentId={developmentId}/>}
       {activeTab==="comissionamento"&&<Comissionamento developmentId={developmentId} disabled={!canEdit}/>} 
-      {activeTab==="acabamentos"&&<TabelaAcabamentos developmentId={developmentId} disabled={!canEdit} role={role}/>}
+      {activeTab==="acabamentos"&&<TabelaAcabamentos developmentId={developmentId} disabled={!canEdit} role={role} onUnsavedChange={finishingChanged}/>}
       {activeTab==="contatos"&&<ProjetistasFornecedores developmentId={developmentId} disabled={!canEdit}/>}
       {activeTab==="historico"&&<DevelopmentHistory developmentId={developmentId}/>}
     </div>
+    <Dialog open={pendingTab!==null} onOpenChange={open=>{if(!open)setPendingTab(null)}}><DialogContent><DialogHeader><DialogTitle>Descartar alterações?</DialogTitle><DialogDescription>Existem alterações não salvas nas tabelas de acabamento. Ao confirmar, esses rascunhos serão descartados.</DialogDescription></DialogHeader><div className="flex justify-end gap-2"><Button variant="outline" onClick={()=>setPendingTab(null)}>Continuar editando</Button><Button variant="destructive" onClick={()=>{if(!pendingTab)return;const next=pendingTab;setPendingTab(null);discardFinishing.current?.();finishingChanged(false);navigateTab(next)}}>Descartar e sair</Button></div></DialogContent></Dialog>
   </div>
 }

@@ -1,6 +1,7 @@
 "use client"
 
-import { useMemo,useState } from "react"
+import { useEffect,useMemo,useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { saveDevelopmentModulePath } from "@/app/actions/developments"
 import { useDevelopmentStore } from "@/lib/store"
 import { PersistenceStatus,usePersistenceStatus } from "@/hooks/use-persistence-status"
@@ -26,6 +27,8 @@ const defaults:Record<string,ServiceData>={
   telecom:{company:"",phone:"",site:"",instructions:""},
 }
 export function Comissionamento({disabled,developmentId}:{disabled?:boolean;developmentId?:string}){
+  const searchParams=useSearchParams()
+  const requestedService=searchParams.get("servico")??searchParams.get("secao")
   const development=useDevelopmentStore(state=>developmentId?state.developments[developmentId]:undefined)
   const initial=useMemo(()=>{
     const authoring=(development?.authoring??{}) as {comissionamento?:Record<string,ServiceData>}
@@ -33,6 +36,7 @@ export function Comissionamento({disabled,developmentId}:{disabled?:boolean;deve
     return {...defaults,...(legacy??{}),...(authoring.comissionamento??{})}
   },[development])
   const [active,setActive]=useState("agua")
+  useEffect(()=>{if(services.some(service=>service.id===requestedService))setActive(requestedService!)},[requestedService])
   const [data,setData]=useState<Record<string,ServiceData>>(initial)
   const current=data[active]
   const save=async(value:typeof data)=>{if(!developmentId)throw new Error("Empreendimento não identificado");return saveDevelopmentModulePath(developmentId,["authoring","comissionamento"],value)}

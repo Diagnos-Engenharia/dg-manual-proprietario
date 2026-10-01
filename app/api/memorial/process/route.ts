@@ -1,12 +1,13 @@
 import { get } from "@vercel/blob"
 import mammoth from "mammoth"
-import { and,eq } from "drizzle-orm"
+import { and,eq,inArray } from "drizzle-orm"
 import { NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { developments,memorialEvidence,memorialImports,technicalContentTemplates } from "@/lib/db/schema"
+import { developmentContentValidations,developments,memorialEvidence,memorialImports,technicalContentTemplates } from "@/lib/db/schema"
 import { getPlatformAiRuntime } from "@/lib/platform-ai"
-import { checklistItems,type ChecklistItem,type ChecklistScope,type MaintenanceItem } from "@/lib/mock-data"
+import { checklistItems,getChecklistItemScopes,type ChecklistItem,type ChecklistScope,type MaintenanceItem } from "@/lib/mock-data"
 import { systemGuideline } from "@/lib/manual-content"
+import { changedValidationContexts } from "@/lib/manual-document/invalidation"
 import { recordAudit,requireDevelopmentRole } from "@/lib/organization"
 
 export const maxDuration=60
@@ -146,19 +147,10 @@ export async function POST(request:Request){
     const development=(await db.select().from(developments).where(and(eq(developments.id,memorial.developmentId),eq(developments.organizationId,context.organization.id))).limit(1))[0]
     if(!development)throw new Error("Empreendimento não encontrado")
     const byId=new Map(checklistItems.map(item=>[item.id,item])),confirmedMap=new Map(confirmed.map(f=>[f.checklistItemId,f]))
-    const data={...((development.data??{}) as Record<string,unknown>)},current=(Array.isArray(data.checklist)?data.checklist:checklistItems) as ChecklistItem[]
-    data.checklist=current.map(item=>{
-      const finding=confirmedMap.get(item.id);if(!finding)return item
-      const prior=Array.isArray(item.scopes)?item.scopes:[]
-      const scopes=item.status==="nao_especificado"?finding.scopes:Array.from(new Set([...prior,...finding.scopes]))
-      return {...item,status:"possui" as const,scopes}
-    })
-
-    const manuals=(data.manuals&&typeof data.manuals==="object"?data.manuals:{}) as Record<string,unknown>
-    const propRaw=(manuals.proprietario&&typeof manuals.proprietario==="object"?manuals.proprietario:{}) as Record<string,unknown>
-    const sindRaw=(manuals.sindico&&typeof manuals.sindico==="object"?manuals.sindico:{}) as Record<string,unknown>
-    const prop={...propRaw,sistemas:{...((propRaw.sistemas??{}) as Record<string,string>)},manutencao:{...((propRaw.manutencao??{}) as Record<string,MaintenanceItem[]>)}}
-    const sind={...sindRaw,sistemas:{...((sindRaw.sistemas??{}) as Record<string,string>)},manutencao:{...((sindRaw.manutencao??{}) as Record<string,MaintenanceItem[]>)}}
+    // Collect only imported patches while templates are prepared. Merge them
+    // into the locked current data later so unrelated concurrent edits survive.
+    const prop={sistemas:{} as Record<string,string>,manutencao:{} as Record<string,MaintenanceItem[]>}
+    const sind={sistemas:{} as Record<string,string>,manutencao:{} as Record<string,MaintenanceItem[]>}
     const cache=new Map<string,{descriptionHtml:string;maintenance:MaintenanceItem[]}>()
     for(const finding of confirmed){
       const item=byId.get(finding.checklistItemId);if(!item)continue
@@ -168,8 +160,34 @@ export async function POST(request:Request){
         ;(target.manutencao as Record<string,MaintenanceItem[]>)[key]=template.maintenance
       }
     }
-    data.manuals={...manuals,proprietario:prop,sindico:sind}
-    await db.update(developments).set({data,lastEditorId:context.user.id,version:development.version+1,updatedAt:new Date()}).where(eq(developments.id,development.id))
+    // Importing a memorial is an edit, even when the previous text was approved.
+    // Keep content and its approval invalidation atomic to avoid publishing a
+    // replacement template with an approval for an older description/table.
+    await db.transaction(async tx=>{
+      const locked=(await tx.select().from(developments).where(and(eq(developments.id,development.id),eq(developments.organizationId,context.organization.id))).for("update"))[0]
+      if(!locked)throw new Error("Empreendimento não encontrado")
+      const data={...((locked.data??{}) as Record<string,unknown>)}
+      const current=(Array.isArray(data.checklist)?data.checklist:checklistItems) as ChecklistItem[]
+      data.checklist=current.map(item=>{
+        const finding=confirmedMap.get(item.id);if(!finding)return item
+        const prior=getChecklistItemScopes(item)
+        const scopes=item.status==="nao_especificado"?finding.scopes:Array.from(new Set([...prior,...finding.scopes]))
+        return {...item,status:"possui" as const,scopes}
+      })
+      const manuals=(data.manuals&&typeof data.manuals==="object"?data.manuals:{}) as Record<string,unknown>
+      const merged={...manuals}
+      for(const [manual,patch] of [["proprietario",prop],["sindico",sind]] as const){
+        const previous=(manuals[manual]&&typeof manuals[manual]==="object"?manuals[manual]:{}) as Record<string,unknown>
+        merged[manual]={...previous,sistemas:{...((previous.sistemas??{}) as Record<string,string>),...patch.sistemas},manutencao:{...((previous.manutencao??{}) as Record<string,MaintenanceItem[]>),...patch.manutencao}}
+      }
+      data.manuals=merged
+      const changed=changedValidationContexts(locked.data,data)
+      await tx.update(developments).set({data,lastEditorId:context.user.id,version:locked.version+1,updatedAt:new Date()}).where(and(eq(developments.id,development.id),eq(developments.organizationId,context.organization.id)))
+      for(const section of ["sistemas","manutencao"] as const){
+        const changedKeys=[...new Set(changed.filter(change=>change.section===section).map(change=>change.contextKey))]
+        if(changedKeys.length)await tx.update(developmentContentValidations).set({status:"rascunho",lastEditorId:context.user.id,validatorId:null,comment:null,updatedAt:new Date()}).where(and(eq(developmentContentValidations.developmentId,development.id),eq(developmentContentValidations.organizationId,context.organization.id),eq(developmentContentValidations.section,section),inArray(developmentContentValidations.contextKey,changedKeys)))
+      }
+    })
     await db.delete(memorialEvidence).where(eq(memorialEvidence.importId,importId))
     if(analysis.findings.length)await db.insert(memorialEvidence).values(analysis.findings.flatMap(f=>f.scopes.map(scope=>({
       id:crypto.randomUUID(),importId,developmentId:development.id,checklistItemId:f.checklistItemId,scope,confidence:f.confidence,page:f.page,excerpt:f.evidence||null,variables:Object.fromEntries(f.details.map(detail=>[detail.key,detail.value])),

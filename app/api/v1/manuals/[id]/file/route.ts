@@ -1,4 +1,4 @@
-import { and,eq } from "drizzle-orm"
+import { and,eq,inArray } from "drizzle-orm"
 import { NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { manualVersions } from "@/lib/db/schema"
@@ -9,7 +9,7 @@ export async function GET(request:Request,{params}:{params:Promise<{id:string}>}
   try{
     const auth=await requirePublicApiScope(request,"manuals:read")
     const {id}=await params
-    const row=(await db.select({pathname:manualVersions.pathname,filename:manualVersions.filename}).from(manualVersions).where(and(eq(manualVersions.id,id),eq(manualVersions.organizationId,auth.organizationId))).limit(1))[0]
+    const row=(await db.select({pathname:manualVersions.pathname,filename:manualVersions.filename}).from(manualVersions).where(and(eq(manualVersions.id,id),eq(manualVersions.organizationId,auth.organizationId),inArray(manualVersions.manualType,["proprietario","sindico"]))).limit(1))[0]
     if(!row)return publicJson({error:{code:"not_found",message:"Manual não encontrado."}},404)
     const result=await getManualFile(row.pathname)
     if(!result)return publicJson({error:{code:"file_not_found",message:"Arquivo do manual não encontrado."}},404)

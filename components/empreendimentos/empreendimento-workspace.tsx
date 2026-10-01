@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect,useState } from "react"
+import { useCallback,useEffect,useRef,useState } from "react"
 import { usePathname,useRouter,useSearchParams } from "next/navigation"
 import { useDevelopmentStore,type DevelopmentRecord } from "@/lib/store"
 import { checklistItems as officialChecklistItems } from "@/lib/mock-data"
@@ -11,6 +11,8 @@ import { ScheduleManager } from "@/components/cronograma/schedule-manager"
 import { AuthoringWorkspace } from "@/components/autoria/authoring-workspace"
 import { Databook } from "@/components/databook/databook"
 import { PdfCompiler } from "@/components/emissao/pdf-compiler"
+import { Button } from "@/components/ui/button"
+import { Dialog,DialogContent,DialogDescription,DialogHeader,DialogTitle } from "@/components/ui/dialog"
 
 const modules=[
   {id:"informacoes",label:"Informações iniciais",icon:ClipboardList},
@@ -27,8 +29,13 @@ export function EmpreendimentoWorkspace({role,developmentId,organizationName="",
   const raw=searchParams.get("modulo")
   const requested:ModuleId|null=raw==="identidade"?"informacoes":modules.some(m=>m.id===raw)?raw as ModuleId:null
   const [active,setActive]=useState<ModuleId>(requested??"informacoes")
+  const [finishingDirty,setFinishingDirty]=useState(false)
+  const [pendingModule,setPendingModule]=useState<ModuleId|null>(null)
+  const discardFinishing=useRef<(()=>void)|null>(null)
+  const finishingChanged=useCallback((dirty:boolean,discard?:()=>void)=>{setFinishingDirty(dirty);if(discard)discardFinishing.current=discard},[])
   useEffect(()=>{if(requested)setActive(requested)},[requested])
-  const selectModule=(module:ModuleId)=>{setActive(module);const params=new URLSearchParams(searchParams.toString());params.set("modulo",module);router.replace(pathname+"?"+params.toString(),{scroll:false})}
+  const navigateModule=(module:ModuleId)=>{setActive(module);const params=new URLSearchParams(searchParams.toString());params.set("modulo",module);router.replace(pathname+"?"+params.toString(),{scroll:false})}
+  const selectModule=(module:ModuleId)=>{if(finishingDirty&&module!==active){setPendingModule(module);return}navigateModule(module)}
   const hydrateDevelopment=useDevelopmentStore(s=>s.hydrateDevelopment)
   useEffect(()=>{
     const record=persistedData as {ficha?:unknown;schedule?:unknown;authoring?:unknown;identity?:unknown;brand?:unknown;manuals?:unknown;checklist?:unknown[]}|null
@@ -41,9 +48,10 @@ export function EmpreendimentoWorkspace({role,developmentId,organizationName="",
     <div>
       {active==="informacoes"&&<InitialInfoWorkspace developmentId={developmentId} role={role} organizationName={organizationName} organizationLogo={organizationLogo} organizationMetadata={organizationMetadata} persistedIdentity={(persistedData as {identity?:unknown}|null)?.identity} initialTab={raw==="identidade"?"design":"ficha"}/>}
       {active==="cronograma"&&<ScheduleManager developmentId={developmentId}/>}
-      {active==="elaboracao"&&<AuthoringWorkspace role={role} developmentId={developmentId}/>}
+      {active==="elaboracao"&&<AuthoringWorkspace role={role} developmentId={developmentId} onUnsavedChange={finishingChanged}/>}
       {active==="databook"&&<Databook developmentId={developmentId} persistedFiles={databookFiles}/>}
       {active==="emissao"&&<PdfCompiler developmentId={developmentId} role={role}/>}
     </div>
+    <Dialog open={pendingModule!==null} onOpenChange={open=>{if(!open)setPendingModule(null)}}><DialogContent><DialogHeader><DialogTitle>Descartar alterações?</DialogTitle><DialogDescription>Salve as alterações nas tabelas de acabamento antes de sair, ou descarte os rascunhos para continuar.</DialogDescription></DialogHeader><div className="flex justify-end gap-2"><Button variant="outline" onClick={()=>setPendingModule(null)}>Continuar editando</Button><Button variant="destructive" onClick={()=>{if(!pendingModule)return;const next=pendingModule;setPendingModule(null);discardFinishing.current?.();setFinishingDirty(false);navigateModule(next)}}>Descartar e sair</Button></div></DialogContent></Dialog>
   </div>
 }

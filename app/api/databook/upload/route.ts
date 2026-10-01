@@ -1,31 +1,34 @@
-import { put } from "@vercel/blob"
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/lib/auth"
-import { db } from "@/lib/db"
-import { databookFiles, developments } from "@/lib/db/schema"
-import { eq, and } from "drizzle-orm"
-import { headers } from "next/headers"
-import { recordAudit, requireDevelopmentRole } from "@/lib/organization"
+import { handleUpload, type HandleUploadBody } from "@vercel/blob/client"
+import { NextResponse } from "next/server"
+import { databookApiError, databookHeaders } from "@/lib/databook/http"
+import { authorizeDatabookTicket, finalizeDatabookUpload, prepareDatabookUpload } from "@/lib/databook/service"
+import { hasLocalDatabookStorage, requireDatabookStorage, writeLocalDatabookFile } from "@/lib/databook/storage"
+import { DatabookError, validateFileMetadata } from "@/lib/databook/ticket"
 
-export async function POST(request: NextRequest) {
+export const runtime = "nodejs"
+export async function POST(request: Request) {
   try {
-    const session = await auth.api.getSession({ headers: await headers() })
-    if (!session?.user) return NextResponse.json({ error: "Não autenticado" }, { status: 401 })
-    const formData = await request.formData()
-    const file = formData.get("file")
-    const developmentId = String(formData.get("developmentId") || "")
-    const folder = String(formData.get("folder") || "Arquivos")
-    if (!(file instanceof File) || !developmentId) return NextResponse.json({ error: "Arquivo ou empreendimento não informado" }, { status: 400 })
-    const context = await requireDevelopmentRole(developmentId,["admin","admin_empreendimento","editor"])
-    const development = await db.select({ id: developments.id }).from(developments).where(and(eq(developments.id, developmentId), eq(developments.organizationId, context.organization.id))).limit(1)
-    if (!development[0]) return NextResponse.json({ error: "Empreendimento não encontrado" }, { status: 404 })
-    const pathname = `databook/${developmentId}/${folder.replace(/[^a-zA-Z0-9À-ÿ _-]/g, "-")}/${file.name}`
-    const blob = await put(pathname, file, { access: "private", addRandomSuffix: true })
-    await db.insert(databookFiles).values({ id: crypto.randomUUID(), userId: session.user.id, developmentId, folder, name: file.name, pathname: blob.pathname, contentType: file.type || null, sizeBytes: file.size })
-    await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: "databook.uploaded", entityType: "development", entityId: developmentId, metadata: { path: ["databook", folder, file.name], before: null, after: { pathname: blob.pathname, size: file.size } } })
-    return NextResponse.json({ pathname: blob.pathname, size: file.size, name: file.name })
-  } catch (error) {
-    console.error("[v0] DATABOOK upload failed", error)
-    return NextResponse.json({ error: "Não foi possível enviar o arquivo" }, { status: 500 })
-  }
+    if (request.headers.get("content-type")?.startsWith("multipart/form-data")) {
+      if (!hasLocalDatabookStorage()) throw new DatabookError("Envie o arquivo pela área de upload direto.")
+      const form = await request.formData()
+      const file = form.get("file")
+      const value = form.get("ticket")
+      const { ticket } = await authorizeDatabookTicket(value)
+      if (!(file instanceof File) || file.size !== ticket.size || validateFileMetadata(file.name, file.type || "application/octet-stream", file.size).name !== ticket.name || (file.type || "application/octet-stream") !== ticket.contentType) throw new DatabookError("O arquivo não corresponde ao envio autorizado.")
+      await writeLocalDatabookFile(ticket.pathname, file)
+      return NextResponse.json({ file: await finalizeDatabookUpload(value) }, { headers: databookHeaders })
+    }
+    const body = await request.json()
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new DatabookError("Dados de envio inválidos.")
+    if (body.action === "prepare") return NextResponse.json(await prepareDatabookUpload(body), { headers: databookHeaders })
+    if (body.action === "finalize") return NextResponse.json({ file: await finalizeDatabookUpload(body.ticket) }, { headers: databookHeaders })
+    if (body.type !== "blob.generate-client-token") throw new DatabookError("Ação de envio inválida.")
+    requireDatabookStorage()
+    const result = await handleUpload({ request, body: body as HandleUploadBody, onBeforeGenerateToken: async (pathname, payload) => {
+      const { ticket } = await authorizeDatabookTicket(payload)
+      if (pathname !== ticket.pathname) throw new DatabookError("Destino de envio inválido.")
+      return { allowedContentTypes: [ticket.contentType], maximumSizeInBytes: ticket.size, validUntil: ticket.expiresAt, addRandomSuffix: false, allowOverwrite: false }
+    } })
+    return NextResponse.json(result, { headers: databookHeaders })
+  } catch (error) { return databookApiError(error) }
 }

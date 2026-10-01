@@ -1,17 +1,16 @@
 'use server'
 
-import { and, eq, or } from "drizzle-orm"
+import { and, eq, inArray } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { db } from "@/lib/db"
 import {
-  developmentAssignments,
   developmentContentValidations,
   developmentReviews,
   developments,
-  members,
-  organizationNotifications,
 } from "@/lib/db/schema"
-import { canEditContent,canValidateContent,recordAudit,requireDevelopmentAccess,requireDevelopmentRole } from "@/lib/organization"
+import { canEditContent,canValidateContent,recordAudit,requireDevelopmentAccess } from "@/lib/organization"
+import { mutateTechnicalSystem, TechnicalContentError } from "@/lib/manual-document/technical-service"
+import type { ManualType } from "@/lib/mock-data"
 
 export type ValidationStatus="rascunho"|"em_elaboracao"|"aguardando_validacao"|"ajustes_solicitados"|"reenviado"|"aprovado"|"publicado"|"arquivado"
 export type ContentValidationStatus="rascunho"|"aguardando_validacao"|"aprovado"|"reprovado"
@@ -45,51 +44,27 @@ export async function listSystemValidationStates(developmentId:string){
     status:developmentContentValidations.status,
     comment:developmentContentValidations.comment,
     updatedAt:developmentContentValidations.updatedAt,
-  }).from(developmentContentValidations).where(and(eq(developmentContentValidations.developmentId,developmentId),eq(developmentContentValidations.organizationId,context.organization.id)))
+  }).from(developmentContentValidations).where(and(eq(developmentContentValidations.developmentId,developmentId),eq(developmentContentValidations.organizationId,context.organization.id),inArray(developmentContentValidations.section,["sistemas","manutencao"])))
   return rows.map(row=>({...row,status:row.status as ContentValidationStatus,section:row.section as ContentSection,updatedAt:row.updatedAt.toISOString()}))
 }
 
-async function validatorsForDevelopment(_developmentId:string,organizationId:string){
-  const admins=await db.select({userId:members.userId}).from(members)
-    .where(and(eq(members.organizationId,organizationId),or(eq(members.role,"owner"),eq(members.role,"admin")),eq(members.status,"active")))
-  return Array.from(new Set(admins.map(row=>row.userId)))
-}
-
-async function getContentValidation(developmentId:string,organizationId:string,contextKey:string,section:ContentSection){
-  return (await db.select().from(developmentContentValidations).where(and(
-    eq(developmentContentValidations.developmentId,developmentId),
-    eq(developmentContentValidations.organizationId,organizationId),
-    eq(developmentContentValidations.contextKey,contextKey),
-    eq(developmentContentValidations.section,section),
-  )).limit(1))[0]
-}
+function manualForContext(contextKey:string):ManualType{return typeof contextKey==="string"&&contextKey.endsWith("::comum")?"sindico":"proprietario"}
 
 export async function submitSystemItemForValidation(input:{developmentId:string;contextKey:string;section:ContentSection;label:string}){
-  const context=await requireDevelopmentRole(input.developmentId,["admin","admin_empreendimento","editor"])
-  const existing=await getContentValidation(input.developmentId,context.organization.id,input.contextKey,input.section)
-  const now=new Date()
-  if(existing)await db.update(developmentContentValidations).set({status:"aguardando_validacao",lastEditorId:context.user.id,validatorId:null,comment:null,updatedAt:now}).where(eq(developmentContentValidations.id,existing.id))
-  else await db.insert(developmentContentValidations).values({id:crypto.randomUUID(),developmentId:input.developmentId,organizationId:context.organization.id,contextKey:input.contextKey,section:input.section,status:"aguardando_validacao",lastEditorId:context.user.id,updatedAt:now})
-  const validators=await validatorsForDevelopment(input.developmentId,context.organization.id)
-  const sectionLabel=input.section==="sistemas"?"Descrição técnica":"Manutenção preventiva"
-  const scopeLabel=input.contextKey.endsWith("::comum")?"Áreas comuns":"Unidades privativas"
-  if(validators.length)await db.insert(organizationNotifications).values(validators.map(userId=>({id:crypto.randomUUID(),organizationId:context.organization.id,userId,type:"validation_requested",title:"1 item enviado para validação",body:input.label+" · "+scopeLabel+" · "+sectionLabel,developmentId:input.developmentId,reason:null})))
-  await recordAudit({organizationId:context.organization.id,actorId:context.user.id,action:"content.sent_for_validation",entityType:"development",entityId:input.developmentId,metadata:{path:["validacao",input.contextKey,input.section],before:existing?.status??"rascunho",after:"aguardando_validacao",label:input.label}})
+  const system=await mutateTechnicalSystem({...input,manualType:manualForContext(input.contextKey),action:"submit"},false)
   revalidatePath("/empreendimentos/"+input.developmentId)
-  return {status:"aguardando_validacao" as ContentValidationStatus}
+  return {status:input.section==="sistemas"?system.descriptionStatus:system.maintenanceStatus}
 }
 
 async function decideContentValidation(input:{developmentId:string;contextKey:string;section:ContentSection;label:string;decision:"aprovado"|"reprovado";comment?:string}){
-  const context=await requireDevelopmentRole(input.developmentId,["admin"])
-  const existing=await getContentValidation(input.developmentId,context.organization.id,input.contextKey,input.section)
-  if(!existing||existing.status!=="aguardando_validacao")throw new Error("Este conteúdo não está aguardando validação")
-  if(input.decision==="aprovado"&&existing.lastEditorId===context.user.id)return {error:"Quem enviou o conteúdo não pode aprovar a própria edição. Solicite a validação de outro usuário."}
-  if(input.decision==="reprovado"&&!input.comment?.trim())throw new Error("Informe o motivo da reprovação")
-  await db.update(developmentContentValidations).set({status:input.decision,validatorId:context.user.id,comment:input.comment?.trim()||null,updatedAt:new Date()}).where(eq(developmentContentValidations.id,existing.id))
-  if(existing.lastEditorId)await db.insert(organizationNotifications).values({id:crypto.randomUUID(),organizationId:context.organization.id,userId:existing.lastEditorId,type:input.decision==="aprovado"?"validation_approved":"validation_rejected",title:input.decision==="aprovado"?"Item aprovado":"Ajustes solicitados",body:input.label+" · "+(input.contextKey.endsWith("::comum")?"Áreas comuns":"Unidades privativas")+" · "+(input.section==="sistemas"?"Descrição técnica":"Manutenção preventiva"),developmentId:input.developmentId,reason:input.decision==="reprovado"?input.comment?.trim()||null:null})
-  await recordAudit({organizationId:context.organization.id,actorId:context.user.id,action:input.decision==="aprovado"?"content.approved":"content.rejected",entityType:"development",entityId:input.developmentId,metadata:{path:["validacao",input.contextKey,input.section],before:existing.status,after:input.decision,label:input.label,comment:input.comment??null}})
-  revalidatePath("/empreendimentos/"+input.developmentId)
-  return {status:input.decision as ContentValidationStatus}
+  try{
+    const system=await mutateTechnicalSystem({...input,manualType:manualForContext(input.contextKey),action:input.decision==="aprovado"?"approve":"reject"},false)
+    revalidatePath("/empreendimentos/"+input.developmentId)
+    return {status:input.section==="sistemas"?system.descriptionStatus:system.maintenanceStatus}
+  }catch(error){
+    if(error instanceof TechnicalContentError&&error.status===403&&error.message.startsWith("Quem enviou"))return {error:error.message}
+    throw error
+  }
 }
 
 export async function validateSystemItem(input:{developmentId:string;contextKey:string;section:ContentSection;label:string}){return decideContentValidation({...input,decision:"aprovado"})}
@@ -97,9 +72,7 @@ export async function rejectSystemItem(input:{developmentId:string;contextKey:st
 
 
 export async function markSystemItemEdited(input:{developmentId:string;contextKey:string;section:ContentSection}){
-  const context=await requireDevelopmentRole(input.developmentId,["admin","admin_empreendimento","editor"])
-  const existing=await getContentValidation(input.developmentId,context.organization.id,input.contextKey,input.section)
-  if(!existing||existing.status==="rascunho")return {status:"rascunho" as ContentValidationStatus}
-  await db.update(developmentContentValidations).set({status:"rascunho",validatorId:null,comment:null,lastEditorId:context.user.id,updatedAt:new Date()}).where(eq(developmentContentValidations.id,existing.id))
-  return {status:"rascunho" as ContentValidationStatus}
+  const system=await mutateTechnicalSystem({...input,manualType:manualForContext(input.contextKey),action:"mark-edited"},false)
+  revalidatePath("/empreendimentos/"+input.developmentId)
+  return {status:input.section==="sistemas"?system.descriptionStatus:system.maintenanceStatus}
 }

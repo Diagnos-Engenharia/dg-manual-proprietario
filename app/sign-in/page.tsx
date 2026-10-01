@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { signIn } from "@/lib/auth-client"
+import { safeAuthRedirect } from "@/lib/auth-redirect"
 
 export default function SignInPage() {
   const router = useRouter()
@@ -17,7 +18,11 @@ export default function SignInPage() {
     try {
       const result = await signIn.email({ email: String(form.get("email")), password: String(form.get("password")) })
       if (result.error) setError("Não foi possível entrar com esses dados.")
-      else { router.push("/"); router.refresh() }
+      else {
+        const destination = safeAuthRedirect(new URLSearchParams(window.location.search).get("next"))
+        router.push(destination)
+        router.refresh()
+      }
     } catch (loginError) {
       console.error("[v0] Falha no login", loginError)
       setError("Não foi possível conectar ao serviço de acesso.")
