@@ -33,7 +33,7 @@ export async function GET(request:Request){
     return NextResponse.json({error:"Arquivo não encontrado"},{status:404})
   const target=previewFile(pathname)
   if(target){
-    try { const bytes=await readFile(target); const type=pathname.endsWith(".png")?"image/png":pathname.endsWith(".webp")?"image/webp":"image/jpeg";return new NextResponse(new Uint8Array(bytes),{headers:{"Content-Type":type,"Cache-Control":"private, no-cache"}}) }
+    try { const bytes=await readFile(/* turbopackIgnore: true */ target); const type=pathname.endsWith(".png")?"image/png":pathname.endsWith(".webp")?"image/webp":"image/jpeg";return new NextResponse(new Uint8Array(bytes),{headers:{"Content-Type":type,"Cache-Control":"private, no-cache"}}) }
     catch {return NextResponse.json({error:"Arquivo não encontrado"},{status:404})}
   }
   const file=await get(pathname,{access:"private"})

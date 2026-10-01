@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect,useMemo,useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { useDevelopmentStore } from "@/lib/store"
 import { saveDevelopmentModulePath } from "@/app/actions/developments"
 import {
@@ -61,6 +62,7 @@ export function SistemasConstrutivos({
   initialContents:ScopedStore<string>
   initialMaintenance:ScopedStore<MaintenanceItem[]>
 }){
+  const requestedItem=useSearchParams().get("item")
   const entries=useMemo(()=>scopeOrder.flatMap(scope=>items.filter(item=>checklistItemMatchesScope(item,scope)).map(item=>({item,scope,key:checklistItemContextKey(item,scope)}))),[items])
   const [openScope,setOpenScope]=useState<Record<ChecklistScope,boolean>>({unidade:true,comum:true})
   const [activeKey,setActiveKey]=useState(entries[0]?.key??"")
@@ -72,6 +74,7 @@ export function SistemasConstrutivos({
   const canEdit=role==="admin"||role==="editor"
 
   useEffect(()=>{if(entries.length&&!entries.some(entry=>entry.key===activeKey))setActiveKey(entries[0].key)},[entries,activeKey])
+  useEffect(()=>{const requested=entries.find(entry=>entry.key===requestedItem);if(requested){setActiveKey(requested.key);setOpenScope(current=>({...current,[requested.scope]:true}))}},[entries,requestedItem])
   const loadValidations=async()=>{try{setValidations(await listSystemValidationStates(developmentId));setValidationError(null)}catch(e){setValidationError(e instanceof Error?e.message:"Falha ao carregar validações")}}
   useEffect(()=>{void loadValidations()},[developmentId])
 

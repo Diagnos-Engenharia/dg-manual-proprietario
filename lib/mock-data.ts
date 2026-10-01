@@ -1351,8 +1351,10 @@ export function linkedSystemItems(items: ChecklistItem[]): ChecklistItem[] {
 }
 
 export function getChecklistItemScopes(item: ChecklistItem): ChecklistScope[] {
-  if (Array.isArray(item.scopes)) return item.scopes.filter((scope, index, list) => list.indexOf(scope) === index)
-  return ["unidade", "comum"]
+  if (Array.isArray(item.scopes)) return item.scopes.filter((scope, index, list) => (scope === "unidade" || scope === "comum") && list.indexOf(scope) === index)
+  // Existing checklists already recorded a single legacy scope. Absence of the
+  // new multi-scope field cannot authorize publishing the item in both manuals.
+  return item.scope === "unidade" || item.scope === "comum" ? [item.scope] : []
 }
 
 export function checklistItemMatchesScope(item: ChecklistItem, scope: ChecklistScope): boolean {

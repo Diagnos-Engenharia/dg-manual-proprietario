@@ -45,10 +45,10 @@ async function until(check,label){for(let i=0;i<70;i++){if(await check())return;
     await page.getByRole('button',{name:'Informações iniciais',exact:true}).waitFor()
     await page.getByRole('button',{name:'Ficha técnica',exact:true}).waitFor()
     assert.equal(await page.getByRole('button',{name:'Design do Manual',exact:true}).count(),1)
-    assert.equal(await page.getByRole('button',{name:'Comissionamento',exact:true}).count(),1)
     console.log('PASS initial information contains technical sheet, design and commissioning')
 
     await page.getByRole('button',{name:'Elaboração',exact:true}).click()
+    assert.equal(await page.getByRole('button',{name:'Comissionamento',exact:true}).count(),1)
     await page.getByText('Piso privativo',{exact:true}).waitFor()
     assert.equal(await page.getByRole('tab',{name:/Manual do Proprietário/}).count(),0)
     assert.equal(await page.getByRole('tab',{name:/Manual do Síndico/}).count(),0)
@@ -105,7 +105,13 @@ async function until(check,label){for(let i=0;i<70;i++){if(await check())return;
     assert.equal(await page.getByText(/\["comum","unidade"\]/).count(),0)
     console.log('PASS readable history without raw scope JSON')
 
-    await pool.query('INSERT INTO finishing_table (id,"developmentId","organizationId",typology,"unitModel",area,data,"lastEditorId") VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',['finish-'+suffix,id,organizationId,'Tipo A','101','70',{ambientes:[{id:'1',ambiente:'Sala',piso:'PISO_EXCLUSIVO_UNIDADE'}]},userId])
+    await pool.query('INSERT INTO finishing_table (id,"developmentId","organizationId",typology,"unitModel",area,data,"lastEditorId",status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',['finish-'+suffix,id,organizationId,'Tipo A','101','70',{ambientes:[{id:'1',ambiente:'Sala',piso:'PISO_EXCLUSIVO_UNIDADE'}]},userId,'aprovado'])
+    // This test verifies scope persistence and PDF segregation. The independent
+    // validation workflow has its own browser test; seed approved scoped records
+    // here so official issuance respects the strengthened publication contract.
+    for(const contextKey of ['unit::unidade','common::comum','shared::unidade','shared::comum']){
+      for(const section of ['sistemas','manutencao'])await pool.query('INSERT INTO development_content_validation (id,"developmentId","organizationId","contextKey",section,status,"lastEditorId") VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT ("developmentId","contextKey",section) DO UPDATE SET status=EXCLUDED.status',['approval-'+suffix+'-'+contextKey+'-'+section,id,organizationId,contextKey,section,'aprovado',userId])
+    }
     const invalid=await saved();invalid.checklist[0].status='nao_especificado';await pool.query('UPDATE development SET data=$1 WHERE id=$2',[invalid,id])
     const blocked=await context.request.post(origin+'/api/manuals/validate',{data:{developmentId:id,manualType:'proprietario'}})
     assert.equal((await blocked.json()).ok,false)

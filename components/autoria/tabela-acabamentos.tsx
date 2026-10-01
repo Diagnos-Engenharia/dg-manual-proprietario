@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect,useMemo,useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { AlertTriangle,CheckCircle2,FileSpreadsheet,Plus,RotateCcw,Save,Search,Trash2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -34,7 +35,8 @@ const emptyRow=(group:GroupConfig):FinishingRow=>Object.fromEntries([["id",crypt
 const defaultMeta:Meta={tower:"Torre 1",unitModel:"Unidade modelo",area:""}
 
 export function TabelaAcabamentos({developmentId,disabled=false,role}:Props){
-  const [typology,setTypology]=useState("Tipo A")
+  const requestedTypology=useSearchParams().get("tipologia")
+  const [typology,setTypology]=useState(requestedTypology??"Tipo A")
   const [tableId,setTableId]=useState<string|null>(null)
   const [tower,setTower]=useState(defaultMeta.tower)
   const [unitModel,setUnitModel]=useState(defaultMeta.unitModel)

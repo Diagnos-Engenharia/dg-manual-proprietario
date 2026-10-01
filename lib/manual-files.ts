@@ -1,5 +1,5 @@
-import { get, put } from "@vercel/blob"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { del, get, put } from "@vercel/blob"
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 
 // Explicitly enabled only for isolated preview runners. Production retains private Blob storage.
@@ -28,5 +28,15 @@ export async function getManualFile(pathname: string) {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null
     throw error
+  }
+}
+
+/** Only the just-generated UUID issuance file may be discarded after a failed commit. */
+export async function discardUnissuedManualFile(pathname: string) {
+  if (!/^manuals\/[^/.]+\/[^/.]+\/[0-9a-f-]{36}\/[^/]+\.pdf$/i.test(pathname)) throw new Error("Caminho de emissão inválido")
+  const local = previewPath(pathname)
+  if (!local) return del(pathname)
+  try { await unlink(local) } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
   }
 }

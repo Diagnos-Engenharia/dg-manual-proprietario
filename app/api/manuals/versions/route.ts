@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { and, desc, eq } from "drizzle-orm"
 import { db } from "@/lib/db"
-import { manualVersions } from "@/lib/db/schema"
+import { manualVersions, user } from "@/lib/db/schema"
 import { requireDevelopmentAccess } from "@/lib/organization"
 
 export async function GET(request: Request) {
@@ -10,6 +10,7 @@ export async function GET(request: Request) {
   const manualType = url.searchParams.get("manualType") ?? "proprietario"
   if (!developmentId) return NextResponse.json({ error: "Empreendimento não informado" }, { status: 400 })
   const context = await requireDevelopmentAccess(developmentId)
-  const versions = await db.select().from(manualVersions).where(and(eq(manualVersions.developmentId, developmentId), eq(manualVersions.organizationId, context.organization.id), eq(manualVersions.manualType, manualType))).orderBy(desc(manualVersions.revision))
+  const rows = await db.select({ version: manualVersions, authorName: user.name }).from(manualVersions).leftJoin(user, eq(manualVersions.createdBy,user.id)).where(and(eq(manualVersions.developmentId, developmentId), eq(manualVersions.organizationId, context.organization.id), eq(manualVersions.manualType, manualType))).orderBy(desc(manualVersions.revision))
+  const versions = rows.map(({ version, authorName }) => ({ ...version, authorName }))
   return NextResponse.json({ versions })
 }

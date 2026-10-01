@@ -1,90 +1,315 @@
 "use client"
 
-import { useEffect,useState } from "react"
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { AlertTriangle,Check,CheckCircle2,Download,Eye,Loader2,Paperclip,RefreshCw,Send,ShieldCheck } from "lucide-react"
-import { Card } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
+import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Download, Eye, FileText, History, ListFilter, Loader2, Maximize, Minus, PanelRight, Plus, RefreshCw, Send } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { flattenSections, type ManualPage as ManualPageData, type ManualPreview, type ManualSection } from "@/lib/manual-document/types"
+import { editableManualSections } from "@/lib/manual-document/build"
+import { optionalManualSectionIds } from "@/lib/manual-content"
 import { cn } from "@/lib/utils"
+import { ManualPage } from "./manual-page"
+import { ContentStatusIcon, contentStatusLabels, DocumentNavigation } from "./document-navigation"
+import { SectionInspector, type EditorialAction, type EditorialData } from "./section-inspector"
+import { manualFileUrl, VersionHistory, versionStatusLabels, type ManualVersion } from "./version-history"
 
-type ManualType="proprietario"|"sindico"
-type Validation={development:string;stages?:Array<{id:string;name:string;progress:number;pending:string[]}>;overall?:number;blocking:string[];alerts:string[];sections:number;attachments:Array<{name:string;sizeBytes:number;pathname:string}>;manualType:ManualType;finishing?:Array<{id:string;typology:string;tower:string;unitModel:string;area:string;revision:number;status:string;updatedAt:string}>}
-type Version={id:string;revision:number;status:string;comment:string|null;filename:string;pathname:string;sections:number;pages:number;attachments:number;createdAt:string}
-const labels:Record<ManualType,string>={proprietario:"Manual do Proprietário",sindico:"Manual do Síndico"}
-const statusLabels:Record<string,string>={rascunho:"Rascunho",validacao:"Em validação",aprovado:"Aprovado",publicado:"Publicado",substituido:"Substituído"}
+type ManualType = "proprietario" | "sindico"
+type ViewMode = "continuous" | "single" | "double"
+type Compilation = { filename: string; pathname: string; revision: number; pages: number }
+const labels: Record<ManualType, string> = { proprietario: "Manual do Proprietário", sindico: "Manual do Síndico" }
+const pointToPixel = 96 / 72
 
-export function PdfCompiler({developmentId,role}:{developmentId?:string;role:"admin"|"editor"|"validator"}){
-  const searchParams=useSearchParams()
-  const requestedManual=searchParams.get("manual")==="sindico"?"sindico":"proprietario"
-  const [manual,setManual]=useState<ManualType>(requestedManual)
-  const [validation,setValidation]=useState<Validation|null>(null)
-  const [versions,setVersions]=useState<Version[]>([])
-  const [loading,setLoading]=useState(false)
-  const [compiling,setCompiling]=useState(false)
-  const [error,setError]=useState<string|null>(null)
-  const [success,setSuccess]=useState<{filename:string;pathname:string;revision:number;pages:number}|null>(null)
+async function readJson<T>(response: Response): Promise<T> {
+  let data: T & { error?: string }
+  try { data = await response.json() as T & { error?: string } } catch { throw new Error(response.status === 401 ? "Sua sessão expirou." : "O servidor não retornou uma resposta válida.") }
+  if (!response.ok) throw new Error(data.error ?? (response.status === 401 ? "Sua sessão expirou." : "Não foi possível concluir a solicitação."))
+  return data
+}
 
-  async function load(){
-    if(!developmentId)return
-    setLoading(true);setError(null)
-    try{
-      const [validationResponse,versionsResponse]=await Promise.all([
-        fetch("/api/manuals/validate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({developmentId,manualType:manual})}),
-        fetch("/api/manuals/versions?developmentId="+encodeURIComponent(developmentId)+"&manualType="+manual),
-      ])
-      const readJson=async<T,>(response:Response)=>{const text=await response.text();try{return JSON.parse(text) as T}catch{throw new Error(response.status===401?"Sua sessão expirou.":"O servidor não retornou uma resposta válida.")}}
-      const nextValidation=await readJson<Validation&{error?:string}>(validationResponse)
-      if(!validationResponse.ok)throw new Error(nextValidation.error||"Não foi possível validar o manual.")
-      setValidation(nextValidation)
-      const nextVersions=await readJson<{versions?:Version[]}>(versionsResponse)
-      if(!versionsResponse.ok)throw new Error("Não foi possível carregar as versões.")
-      setVersions(nextVersions.versions??[])
-    }catch(cause){setError(cause instanceof Error?cause.message:"Não foi possível carregar a emissão.")}
-    finally{setLoading(false)}
+export function PdfCompiler({ developmentId, role }: { developmentId?: string; role: "admin" | "editor" | "validator" }) {
+  const searchParams = useSearchParams()
+  const requestedManual = searchParams.get("manual") === "sindico" ? "sindico" : "proprietario"
+  const requestedSection = searchParams.get("secao")
+  const [manual, setManual] = useState<ManualType>(requestedManual)
+  const [preview, setPreview] = useState<ManualPreview | null>(null)
+  const [editorial, setEditorial] = useState<EditorialData | null>(null)
+  const [versions, setVersions] = useState<ManualVersion[]>([])
+  const [loading, setLoading] = useState(false)
+  const [compiling, setCompiling] = useState(false)
+  const [actionBusy, setActionBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<Compilation | null>(null)
+  const [activeId, setActiveId] = useState("capa")
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
+  const [page, setPage] = useState(1)
+  const [zoom, setZoom] = useState(0.7)
+  const [viewMode, setViewMode] = useState<ViewMode>("continuous")
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [pendingOpen, setPendingOpen] = useState(false)
+  const [inspectorOpen, setInspectorOpen] = useState(false)
+  const [optionalOpen, setOptionalOpen] = useState(false)
+  const [now, setNow] = useState(Date.now())
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const pageRefs = useRef(new Map<number, HTMLDivElement>())
+  const positions = useRef<{ page: number; top: number; height: number }[]>([])
+  const zoomAnchor = useRef<{ page: number; fraction: number; offset: number } | null>(null)
+  const activePageRef = useRef(page)
+  activePageRef.current = page
+  const loadController = useRef<AbortController | null>(null)
+  const operationController = useRef<AbortController | null>(null)
+  const mutationScope = useRef<string | null>(null)
+  const loadSequence = useRef(0)
+  const operationSequence = useRef(0)
+  const scope = (developmentId ?? "") + ":" + manual
+  const currentScope = useRef(scope)
+  currentScope.current = scope
+
+  const load = useCallback(async () => {
+    if (!developmentId) return
+    const requestScope = developmentId + ":" + manual
+    const sequence = ++loadSequence.current
+    loadController.current?.abort()
+    const controller = new AbortController()
+    loadController.current = controller
+    setLoading(true); setError(null)
+    const body = JSON.stringify({ developmentId, manualType: manual })
+    const query = "?developmentId=" + encodeURIComponent(developmentId) + "&manualType=" + manual
+    const results = await Promise.allSettled([
+      fetch("/api/manuals/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: controller.signal }).then(response => readJson<ManualPreview>(response)),
+      fetch("/api/manuals/versions" + query, { signal: controller.signal }).then(response => readJson<{ versions: ManualVersion[] }>(response)),
+      fetch("/api/manuals/editorial" + query, { signal: controller.signal }).then(response => readJson<EditorialData>(response)),
+    ])
+    if (controller.signal.aborted || sequence !== loadSequence.current || currentScope.current !== requestScope) return
+    const [documentResult, versionsResult, editorialResult] = results
+    const failures: string[] = []
+    if (documentResult.status === "fulfilled") {
+      setPreview(documentResult.value)
+      setPage(current => Math.min(current, Math.max(1, documentResult.value.layout.pages.length)))
+      setActiveId(current => flattenSections(documentResult.value.document.sections).some(section => section.id === current) ? current : documentResult.value.document.sections[0]?.id ?? "capa")
+    } else failures.push(documentResult.reason instanceof Error ? documentResult.reason.message : "Não foi possível atualizar o preview.")
+    if (versionsResult.status === "fulfilled") setVersions(versionsResult.value.versions ?? [])
+    else failures.push("Não foi possível carregar o histórico de versões.")
+    if (editorialResult.status === "fulfilled") setEditorial(editorialResult.value)
+    else failures.push("Não foi possível carregar os textos para edição e revisão.")
+    setError(failures.length ? failures.join(" ") : null)
+    setLoading(false)
+  }, [developmentId, manual])
+
+  useEffect(() => { setManual(requestedManual) }, [requestedManual])
+  useEffect(() => {
+    setPreview(null); setEditorial(null); setVersions([]); setSuccess(null); setError(null); setActiveId("capa"); setPage(1); setExpanded(new Set()); setCompiling(false); setActionBusy(false); mutationScope.current = null
+    operationController.current?.abort(); operationSequence.current++; zoomAnchor.current = null
+    void load()
+    return () => { loadController.current?.abort(); operationController.current?.abort() }
+  }, [load])
+  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 10000); return () => window.clearInterval(timer) }, [])
+  const sections = useMemo(() => preview ? flattenSections(preview.document.sections) : [], [preview])
+  const sectionById = useMemo(() => new Map(sections.map(section => [section.id, section])), [sections])
+  const pendingSections = useMemo(() => sections.filter(section => section.type !== "chapter" && section.type !== "cover" && section.type !== "toc" && section.validationStatus !== "aprovado" && section.validationStatus !== "nao_aplicavel"), [sections])
+  const activeSection = sectionById.get(activeId)
+  const pageCount = preview?.layout.pages.length ?? 0
+  const visiblePages = useMemo(() => {
+    const pages = preview?.layout.pages ?? []
+    if (viewMode === "single") return pages.filter(item => item.number === page)
+    if (viewMode === "double") { const start = page % 2 ? page : page - 1; return pages.filter(item => item.number === start || item.number === start + 1) }
+    return pages
+  }, [preview, viewMode, page])
+  const destinations = useMemo(() => Object.entries(preview?.layout.destinations ?? {}).map(([id, destination]) => ({ id, ...destination })).sort((a, b) => a.page - b.page || a.y - b.y), [preview])
+
+  const collectPositions = useCallback(() => {
+    const viewport = viewportRef.current
+    if (!viewport) return
+    const top = viewport.getBoundingClientRect().top
+    positions.current = Array.from(pageRefs.current.entries()).map(([number, element]) => { const box = element.getBoundingClientRect(); return { page: number, top: box.top - top + viewport.scrollTop, height: box.height } }).sort((a, b) => a.top - b.top)
+  }, [])
+  useLayoutEffect(() => {
+    collectPositions()
+    const viewport = viewportRef.current
+    if (!viewport) return
+    const anchor = zoomAnchor.current
+    if (anchor) {
+      const sheet = positions.current.find(candidate => candidate.page === anchor.page)
+      if (sheet) viewport.scrollTop = Math.max(0, sheet.top + sheet.height * anchor.fraction - anchor.offset)
+      zoomAnchor.current = null
+    }
+    const observer = new ResizeObserver(collectPositions)
+    observer.observe(viewport)
+    return () => observer.disconnect()
+  }, [collectPositions, visiblePages, zoom])
+  useEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport || !preview) return
+    let frame = 0
+    const syncScroll = () => {
+      if (frame) return
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        const cursor = viewport.scrollTop + 40
+        const sheets = positions.current
+        let sheet = sheets[0]
+        if (viewMode === "double") sheet = sheets.find(candidate => candidate.page === activePageRef.current) ?? sheets[0]
+        else for (const candidate of sheets) { if (candidate.top > cursor) break; sheet = candidate }
+        if (!sheet) return
+        const pageData = preview.layout.pages.find(item => item.number === sheet.page)
+        if (!pageData) return
+        const y = Math.max(0, cursor - sheet.top) * pageData.height / sheet.height
+        const onPage = destinations.filter(destination => destination.page === sheet.page)
+        let destination = onPage[0]
+        for (const candidate of onPage) { if (candidate.y > y + 12) break; destination = candidate }
+        setPage(sheet.page)
+        setActiveId(destination?.id ?? pageData.sectionId)
+      })
+    }
+    viewport.addEventListener("scroll", syncScroll, { passive: true })
+    return () => { viewport.removeEventListener("scroll", syncScroll); if (frame) cancelAnimationFrame(frame) }
+  }, [preview, destinations, viewMode])
+
+  const navigate = useCallback((id: string, matchingPage?: number) => {
+    if (!preview) return
+    const sectionDestination = preview.layout.destinations[id]
+    const destination = matchingPage ? { page: matchingPage, y: 0 } : sectionDestination
+    if (!destination) return
+    setActiveId(id); setPage(destination.page)
+    requestAnimationFrame(() => {
+      const viewport = viewportRef.current
+      const element = pageRefs.current.get(destination.page)
+      if (!viewport || !element) return
+      collectPositions()
+      const position = positions.current.find(item => item.page === destination.page)
+      const pageData = preview.layout.pages.find(item => item.number === destination.page)
+      if (position && pageData) viewport.scrollTo({ top: position.top + destination.y * position.height / pageData.height - 24, behavior: "auto" })
+    })
+  }, [preview, collectPositions])
+  useEffect(() => { if (requestedSection && preview?.layout.destinations[requestedSection]) navigate(requestedSection) }, [requestedSection, preview?.fingerprint, navigate])
+  useEffect(() => {
+    if (!preview) return
+    const ancestors: string[] = []
+    function locate(tree: ManualSection[], path: string[]): boolean { for (const section of tree) { if (section.id === activeId) { ancestors.push(...path); return true } if (locate(section.children, [...path, section.id])) return true } return false }
+    locate(preview.document.sections, [])
+    if (ancestors.length) setExpanded(current => { if (ancestors.every(id => current.has(id))) return current; const next = new Set(current); ancestors.forEach(id => next.add(id)); return next })
+  }, [activeId, preview])
+  const toggleExpanded = useCallback((id: string) => setExpanded(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next }), [])
+
+  function changeZoom(next: number, wholePage = false) {
+    const value = Math.max(0.25, Math.min(2, next))
+    const viewport = viewportRef.current
+    if (viewport) {
+      collectPositions()
+      const offset = 24
+      const cursor = viewport.scrollTop + offset
+      let sheet = positions.current[0]
+      if (viewMode === "double") sheet = positions.current.find(candidate => candidate.page === activePageRef.current) ?? sheet
+      else for (const candidate of positions.current) { if (candidate.top > cursor) break; sheet = candidate }
+      if (sheet) {
+        const fraction = wholePage ? 0 : Math.max(0, Math.min(1, (cursor - sheet.top) / sheet.height))
+        zoomAnchor.current = { page: sheet.page, fraction, offset }
+        if (value === zoom) { viewport.scrollTop = Math.max(0, sheet.top + sheet.height * fraction - offset); zoomAnchor.current = null }
+      }
+    }
+    setZoom(value)
   }
-  useEffect(()=>{setManual(requestedManual)},[requestedManual])
-  useEffect(()=>{void load()},[developmentId,manual])
-
-  async function compile(){
-    if(!developmentId||!validation||validation.blocking.length)return
-    setCompiling(true);setError(null);setSuccess(null)
-    try{
-      const response=await fetch("/api/manuals/compile",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({developmentId,manualType:manual})})
-      const text=await response.text()
-      let result:{error?:string;filename:string;pathname:string;revision:number;pages:number}
-      try{result=JSON.parse(text) as typeof result}catch{throw new Error(response.status===401?"Sua sessão expirou.":"O servidor não retornou uma resposta válida.")}
-      if(!response.ok)throw new Error(result.error||"Falha ao gerar o PDF.")
-      setSuccess(result);await load()
-    }catch(cause){setError(cause instanceof Error?cause.message:"Falha ao gerar o PDF.")}
-    finally{setCompiling(false)}
+  function fit(kind: "page" | "width") {
+    const viewport = viewportRef.current
+    const first = preview?.layout.pages[0]
+    if (!viewport || !first) return
+    const columns = viewMode === "double" ? 2 : 1
+    const width = (viewport.clientWidth - 56 - (columns - 1) * 24) / (first.width * pointToPixel * columns)
+    const height = (viewport.clientHeight - 70) / (first.height * pointToPixel)
+    changeZoom(kind === "page" ? Math.min(width, height) : width, kind === "page")
   }
-  const fileUrl=(pathname:string)=>"/api/manuals/file?pathname="+encodeURIComponent(pathname)
-  async function transition(id:string,status:string){await fetch("/api/manuals/versions/status",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id,status})});await load()}
-  const current=versions[0]
-  const ready=Boolean(validation&&validation.blocking.length===0&&!validation.stages?.some(stage=>stage.progress<100))
-  const overall=validation?.overall??0
+  function movePage(next: number) {
+    const number = Math.max(1, Math.min(pageCount, next))
+    setPage(number)
+    const pageData = preview?.layout.pages.find(item => item.number === number)
+    if (pageData) setActiveId(pageData.sectionId)
+    requestAnimationFrame(() => { const viewport = viewportRef.current; const element = pageRefs.current.get(number); if (viewport && element) { collectPositions(); const position = positions.current.find(item => item.page === number); if (position) viewport.scrollTo({ top: Math.max(0, position.top - 24), behavior: "auto" }) } })
+  }
 
-  return <div className="flex flex-col gap-4">
-    <div className="grid gap-2 sm:grid-cols-2">{(["proprietario","sindico"] as ManualType[]).map(type=><button key={type} type="button" onClick={()=>setManual(type)} className={cn("rounded-lg border px-4 py-3 text-left text-sm font-semibold",manual===type?"border-primary bg-primary/10":"border-border bg-card hover:border-primary/40")}>{labels[type]}</button>)}</div>
+  async function scopedAction(url: string, body: Record<string, unknown>) {
+    const actionScope = scope
+    if (mutationScope.current === actionScope) throw new Error("Aguarde a conclusão da atualização em andamento.")
+    mutationScope.current = actionScope
+    const controller = new AbortController()
+    const sequence = ++operationSequence.current
+    operationController.current = controller
+    setActionBusy(true)
+    try {
+      await readJson(await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: controller.signal }))
+      if (currentScope.current === actionScope && sequence === operationSequence.current && !controller.signal.aborted) await load()
+    } finally { if (currentScope.current === actionScope && sequence === operationSequence.current) { mutationScope.current = null; setActionBusy(false) } }
+  }
+  async function editorialAction(action: EditorialAction) { await scopedAction("/api/manuals/editorial", { ...action, developmentId, manualType: manual }) }
+  async function transition(id: string, status: string) { await scopedAction("/api/manuals/versions/status", { id, status }) }
+  async function compile() {
+    if (!developmentId || !preview?.readiness.ok || loading || compiling || actionBusy || mutationScope.current === scope || role === "validator") return
+    const actionScope = scope
+    const controller = new AbortController()
+    const sequence = ++operationSequence.current
+    operationController.current = controller
+    mutationScope.current = actionScope
+    setCompiling(true); setError(null); setSuccess(null)
+    try {
+      const response = await fetch("/api/manuals/compile", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ developmentId, manualType: manual, previewFingerprint: preview.fingerprint }), signal: controller.signal })
+      const result = await readJson<Compilation>(response)
+      if (currentScope.current !== actionScope || sequence !== operationSequence.current || controller.signal.aborted) return
+      setSuccess(result); await load()
+    } catch (cause) { if (currentScope.current === actionScope && sequence === operationSequence.current && !controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Falha ao emitir o PDF.") } finally { if (currentScope.current === actionScope && sequence === operationSequence.current) { mutationScope.current = null; setCompiling(false) } }
+  }
 
-    {error&&<div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0"/>{error}</div>}
+  const ready = Boolean(preview?.readiness.ok)
+  const overall = preview?.readiness.overall ?? 0
+  const elapsed = preview ? Math.max(0, Math.floor((now - new Date(preview.updatedAt).getTime()) / 1000)) : 0
+  const pendingCount = preview?.readiness.blocking.length ?? 0
+  const revision = preview?.document.metadata.revision ?? versions[0]?.revision ?? 0
+  const documentState = ready ? "Pronto para emissão" : "Em elaboração"
+  function stageHref(id: string) {
+    const base = "/empreendimentos/" + encodeURIComponent(developmentId ?? "") + "?manual=" + manual
+    if (id === "ficha") return base + "&modulo=informacoes"
+    if (id === "cronograma" || id.startsWith("custom-")) return base + "&modulo=cronograma"
+    if (id === "editorial") return base + "&modulo=emissao"
+    return base + "&modulo=elaboracao&aba=" + (id === "acabamentos" ? "acabamentos" : id === "checklist" ? "checklist" : "sistemas")
+  }
 
-    <Card className="p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">{ready?<CheckCircle2 className="h-5 w-5 text-success"/>:<AlertTriangle className="h-5 w-5 text-warning"/>}<h3 className="font-semibold">{ready?"Pronto para emitir":"Pendências"}</h3></div>
-        <div className="flex items-center gap-2"><Badge variant="outline">{overall}%</Badge>{current&&<Badge variant="outline">Rev. {String(current.revision).padStart(2,"0")}</Badge>}<Button variant="ghost" size="sm" onClick={()=>void load()} disabled={loading}><RefreshCw className={cn("h-4 w-4",loading&&"animate-spin")}/>Atualizar</Button></div>
+  if (!developmentId) return <div className="rounded-lg border border-border p-8 text-center text-sm text-muted-foreground">Selecione um empreendimento para compor o manual.</div>
+  return <div className="flex min-w-0 flex-col gap-3">
+    <div className="rounded-xl border border-border bg-card shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-3">
+        <div className="flex flex-wrap items-center gap-3"><label className="sr-only" htmlFor="manual-type">Tipo de manual</label><select id="manual-type" value={manual} onChange={event => setManual(event.target.value as ManualType)} className="h-9 max-w-full rounded-md border border-input bg-background px-2 text-sm font-semibold">{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><span className="text-xs tabular-nums text-muted-foreground">Rev. {String(revision).padStart(2, "0")} · {pageCount} páginas</span><Badge variant="outline" className={cn(ready && "border-success/30 text-success")}>{overall}% concluído</Badge></div>
+        <div className="flex flex-wrap items-center gap-1.5"><Button variant="ghost" size="sm" onClick={() => void load()} disabled={loading || compiling || actionBusy}><RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />Atualizar preview</Button><Button variant="ghost" size="sm" onClick={() => setOptionalOpen(true)}><ListFilter className="h-3.5 w-3.5" />Módulos</Button><Button variant="outline" size="sm" onClick={() => setHistoryOpen(true)}><History className="h-3.5 w-3.5" />Histórico</Button><Button variant="outline" size="sm" onClick={() => setPendingOpen(true)}><AlertTriangle className="h-3.5 w-3.5" />Pendências{pendingCount > 0 && <span className="rounded bg-muted px-1.5 text-[10px]">{pendingCount}</span>}</Button><Button size="sm" onClick={() => void compile()} disabled={!ready || loading || compiling || actionBusy || role === "validator"} title={role === "validator" ? "A emissão está disponível para administradores e editores." : !ready ? "Conclua as pendências obrigatórias para emitir." : "Emitir o manual conferido no preview"}>{compiling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}{compiling ? "Emitindo…" : "Emitir PDF"}</Button></div>
       </div>
-      <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary transition-all" style={{width:overall+"%"}}/></div>
-      {validation?.stages&&<div className="mt-4 space-y-2">{validation.stages.map(stage=><div key={stage.id} className="rounded-md border border-border px-3 py-3"><div className="flex items-center justify-between gap-2"><span className="text-sm font-medium">{stage.name}</span><span className="text-xs text-muted-foreground">{stage.progress}%</span></div>{stage.pending.map((item,index)=><p key={index} className="mt-1 text-xs text-destructive">• {item}</p>)}{stage.pending.length>0&&developmentId&&<a className="mt-2 inline-block text-xs font-medium text-primary underline" href={"/empreendimentos/"+encodeURIComponent(developmentId)+"?modulo="+(stage.id==="cronograma"?"cronograma":"elaboracao")+"&manual="+manual}>Corrigir</a>}</div>)}</div>}
-      {manual==="proprietario"&&<div className="mt-3 flex items-center gap-2 text-sm">{validation?.finishing?.length?<Check className="h-4 w-4 text-success"/>:<AlertTriangle className="h-4 w-4 text-warning"/>}<span>Tabela de Acabamentos</span></div>}
-      {validation?.alerts.map(item=><p key={item} className="mt-3 text-sm text-warning">{item}</p>)}
-      <div className="mt-5 flex flex-wrap items-center gap-2"><Button onClick={compile} disabled={compiling||loading||!ready}>{compiling?<><Loader2 className="h-4 w-4 animate-spin"/>Gerando…</>:<><Send className="h-4 w-4"/>Emitir PDF</>}</Button>{success&&<><a className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-accent" href={fileUrl(success.pathname)} target="_blank" rel="noreferrer"><Eye className="h-4 w-4"/>Visualizar</a><a className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-accent" href={fileUrl(success.pathname)} download={success.filename}><Download className="h-4 w-4"/>Baixar</a></>}</div>
-      {success&&<p className="mt-3 text-sm text-success">{success.filename} · {success.pages} páginas</p>}
-    </Card>
-
-    <Card className="p-5"><div className="flex items-center justify-between"><h3 className="font-semibold">Anexos</h3><Badge variant="outline">{validation?.attachments.length??0}</Badge></div>{validation?.attachments.length?<div className="mt-3 grid gap-2 sm:grid-cols-2">{validation.attachments.map(file=><div key={file.pathname} className="flex items-center justify-between gap-3 rounded-md border border-border p-3 text-sm"><span className="flex min-w-0 items-center gap-2"><Paperclip className="h-4 w-4 shrink-0 text-muted-foreground"/><span className="truncate">{file.name}</span></span><span className="text-xs text-muted-foreground">{Math.ceil(file.sizeBytes/1024)} KB</span></div>)}</div>:<p className="mt-3 text-sm text-muted-foreground">Nenhum anexo.</p>}</Card>
-
-    <Card className="p-5"><h3 className="font-semibold">Versões</h3><div className="mt-3 flex flex-col gap-2">{versions.map((version,index)=><div key={version.id} className="flex flex-col gap-3 rounded-lg border border-border p-4 sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2"><Badge variant={index===0?"default":"secondary"}>Rev. {String(version.revision).padStart(2,"0")}</Badge><span className="text-sm font-medium">{statusLabels[version.status]??version.status}</span></div><p className="mt-1 text-xs text-muted-foreground">{new Date(version.createdAt).toLocaleString("pt-BR")} · {version.pages} páginas</p></div><div className="flex flex-wrap gap-2">{version.status==="rascunho"&&(role==="editor"||role==="admin")&&<Button size="sm" variant="outline" onClick={()=>void transition(version.id,"validacao")}><Send className="h-4 w-4"/>Validar</Button>}{version.status==="validacao"&&role==="admin"&&<Button size="sm" variant="outline" onClick={()=>void transition(version.id,"aprovado")}><Check className="h-4 w-4"/>Aprovar</Button>}{version.status==="aprovado"&&role==="admin"&&<Button size="sm" variant="outline" onClick={()=>void transition(version.id,"publicado")}><ShieldCheck className="h-4 w-4"/>Publicar</Button>}<a className="inline-flex h-8 items-center justify-center rounded-md border border-input px-2" href={fileUrl(version.pathname)} target="_blank" rel="noreferrer"><Eye className="h-4 w-4"/></a><a className="inline-flex h-8 items-center justify-center rounded-md border border-input px-2" href={fileUrl(version.pathname)} download={version.filename}><Download className="h-4 w-4"/></a></div></div>)}{versions.length===0&&<p className="text-sm text-muted-foreground">Nenhuma versão emitida.</p>}</div></Card>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-3 py-2">
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">{ready ? <CheckCircle2 className="h-3.5 w-3.5 text-success" /> : <FileText className="h-3.5 w-3.5" />}<span>{documentState}</span>{versions[0] && <span className="hidden sm:inline">· Última emissão: {versionStatusLabels[versions[0].status] ?? versions[0].status}</span>}<span className="hidden md:inline">· {preview ? elapsed < 60 ? "Preview atualizado há " + elapsed + " s" : "Preview atualizado há " + Math.floor(elapsed / 60) + " min" : "Preparando preview"}</span></div>
+        <div className="flex flex-wrap items-center gap-1"><Button variant="ghost" size="icon-sm" aria-label="Diminuir zoom" onClick={() => changeZoom(zoom - 0.1)}><Minus className="h-3.5 w-3.5" /></Button><span className="min-w-10 text-center text-xs tabular-nums">{Math.round(zoom * 100)}%</span><Button variant="ghost" size="icon-sm" aria-label="Aumentar zoom" onClick={() => changeZoom(zoom + 0.1)}><Plus className="h-3.5 w-3.5" /></Button><Button variant="ghost" size="sm" onClick={() => fit("page")} disabled={!preview}><Maximize className="h-3.5 w-3.5" />Página</Button><Button variant="ghost" size="sm" onClick={() => fit("width")} disabled={!preview}>Largura</Button><select aria-label="Modo de visualização" value={viewMode} onChange={event => setViewMode(event.target.value as ViewMode)} className="ml-1 h-7 rounded-md border border-input bg-background px-1.5 text-xs"><option value="continuous">Contínuo</option><option value="single">Página única</option><option value="double">Duas páginas</option></select><Button variant="ghost" size="icon-sm" aria-label="Abrir informações da seção" className="xl:hidden" onClick={() => setInspectorOpen(true)}><PanelRight className="h-4 w-4" /></Button></div>
+      </div>
+    </div>
+    {error && <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span>{error}</span></div>}
+    {success && <div role="status" className="flex flex-wrap items-center gap-3 rounded-lg border border-success/20 bg-success/5 px-3 py-2 text-xs"><CheckCircle2 className="h-4 w-4 text-success" /><span>Rev. {String(success.revision).padStart(2, "0")} emitida · {success.pages} páginas</span><a href={manualFileUrl(success.pathname)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline"><Eye className="h-3.5 w-3.5" />Visualizar</a><a href={manualFileUrl(success.pathname)} download={success.filename} className="inline-flex items-center gap-1 text-primary hover:underline"><Download className="h-3.5 w-3.5" />Baixar</a></div>}
+    <div className="grid h-[calc(100dvh-240px)] min-h-[560px] min-w-0 grid-cols-[minmax(160px,220px)_minmax(0,1fr)] overflow-hidden rounded-xl border border-border xl:grid-cols-[240px_minmax(0,1fr)_250px]">
+      {preview ? <DocumentNavigation sections={preview.document.sections} layout={preview.layout} activeId={activeId} expanded={expanded} onExpand={toggleExpanded} onNavigate={navigate} /> : <div className="border-r border-border bg-card p-4 text-sm text-muted-foreground">Sumário{loading && <p className="mt-4 text-xs">Carregando estrutura…</p>}</div>}
+      <div className="flex min-h-0 min-w-0 flex-col bg-muted/50">
+        <div ref={viewportRef} className="relative min-h-0 flex-1 overflow-auto [overflow-anchor:none]" aria-label="Pré-visualização do manual em páginas A4" aria-busy={loading}>
+          {preview ? <div className={cn("flex min-h-full min-w-max gap-6 p-6", viewMode === "double" ? "flex-row items-start justify-center" : "flex-col items-center")}>{visiblePages.map(item => <PageSheet key={item.number} page={item} preview={preview} zoom={zoom} pageRefs={pageRefs} onNavigate={navigate} />)}</div> : <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center"><FileText className="h-10 w-10 text-muted-foreground/50" />{loading ? <><Loader2 className="h-5 w-5 animate-spin text-primary" /><p className="text-sm text-muted-foreground">Montando o manual…</p></> : <><p className="text-sm text-muted-foreground">O preview estará disponível com a estrutura do manual, mesmo antes de sua conclusão.</p><Button variant="outline" size="sm" onClick={() => void load()}>Carregar preview</Button></>}</div>}
+        </div>
+        <div className="flex shrink-0 items-center justify-center gap-3 border-t border-border bg-card px-3 py-2"><Button variant="ghost" size="icon-sm" aria-label="Página anterior" disabled={page <= 1 || !preview} onClick={() => movePage(page - (viewMode === "double" ? 2 : 1))}><ChevronLeft className="h-4 w-4" /></Button><label className="flex items-center gap-2 text-xs text-muted-foreground">Página<input aria-label="Ir para página" type="number" min={1} max={pageCount || 1} value={page} onChange={event => { const next = Number(event.target.value); if (Number.isFinite(next) && next >= 1) movePage(next) }} className="h-7 w-12 rounded-md border border-input bg-background px-1 text-center text-foreground" />de {pageCount}</label><Button variant="ghost" size="icon-sm" aria-label="Próxima página" disabled={page >= pageCount || !preview} onClick={() => movePage(page + (viewMode === "double" ? 2 : 1))}><ChevronRight className="h-4 w-4" /></Button></div>
+      </div>
+      <aside className="hidden min-h-0 overflow-y-auto border-l border-border bg-card xl:block" aria-label="Informações da seção"><SectionInspector key={scope} section={activeSection} page={preview?.layout.destinations[activeId]?.page} role={role} editorial={editorial} attachments={preview?.document.attachments ?? []} onAction={editorialAction} /></aside>
+    </div>
+    <VersionHistory key={scope + ":versions"} open={historyOpen} onOpenChange={setHistoryOpen} versions={versions} role={role} onTransition={transition} />
+    <Dialog open={pendingOpen} onOpenChange={setPendingOpen}><DialogContent className="sm:max-w-2xl"><DialogHeader><DialogTitle>Pendências do documento</DialogTitle><DialogDescription>{labels[manual]} · {overall}% concluído. Corrija o conteúdo na elaboração e atualize o preview.</DialogDescription></DialogHeader><div className="max-h-[65vh] space-y-4 overflow-y-auto">
+      {preview?.readiness.stages.map(stage => <div key={stage.id} className="rounded-lg border border-border p-3"><div className="flex items-center justify-between gap-2"><h3 className="text-sm font-medium">{stage.name}</h3><span className="text-xs text-muted-foreground">{stage.progress}%</span></div>{stage.pending.map((item, index) => <p key={index} className="mt-1 text-xs text-destructive">{item}</p>)}{stage.pending.length > 0 && <a href={stageHref(stage.id)} className="mt-2 inline-block text-xs text-primary underline">Corrigir esta etapa</a>}</div>)}
+      {pendingSections.length > 0 && <div><h3 className="mb-2 text-sm font-semibold">Conteúdo por seção</h3><div className="space-y-1">{pendingSections.map(section => <div key={section.id} className="flex items-center gap-2 rounded-md border border-border px-3 py-2"><ContentStatusIcon status={section.validationStatus} /><button type="button" onClick={() => { navigate(section.id); setPendingOpen(false) }} className="min-w-0 flex-1 text-left text-xs hover:text-primary">{section.number ? section.number + " " : ""}{section.title}<span className="mt-0.5 block text-[10px] text-muted-foreground">{contentStatusLabels[section.validationStatus]}</span></button>{section.editHref && <a href={section.editHref} className="shrink-0 text-xs text-primary underline">Corrigir</a>}</div>)}</div></div>}
+      {preview?.readiness.blocking.length ? <div className="space-y-1 rounded-md bg-destructive/5 p-3">{preview.readiness.blocking.map((item, index) => <p key={index} className="text-xs text-destructive">{item}</p>)}</div> : <p className="text-sm text-success">Nenhuma pendência obrigatória para emissão.</p>}
+      {preview?.layout.warnings.length ? <div className="space-y-1 rounded-md bg-warning/5 p-3">{preview.layout.warnings.map((item, index) => <p key={index} className="text-xs text-warning">{item}</p>)}</div> : null}
+    </div></DialogContent></Dialog>
+    <Dialog open={inspectorOpen} onOpenChange={setInspectorOpen}><DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Informações da seção</DialogTitle></DialogHeader><div className="max-h-[70vh] overflow-y-auto"><SectionInspector key={scope + ":mobile"} section={activeSection} page={preview?.layout.destinations[activeId]?.page} role={role} editorial={editorial} attachments={preview?.document.attachments ?? []} onAction={editorialAction} /></div></DialogContent></Dialog>
+    <Dialog open={optionalOpen} onOpenChange={setOptionalOpen}><DialogContent><DialogHeader><DialogTitle>Módulos opcionais</DialogTitle><DialogDescription>Defina quais seções se aplicam a este manual. A macroestrutura permanece protegida.</DialogDescription></DialogHeader><div className="space-y-3">{optionalManualSectionIds.map(id => <label key={id} className="flex items-center gap-3 rounded-md border border-border p-3 text-sm"><input type="checkbox" checked={editorial?.sections[id]?.enabled !== false} disabled={!editorial || editorial.canEdit === false || role === "validator" || actionBusy || compiling} onChange={event => void editorialAction({ action: "settings", optional: { [id]: event.target.checked } }).catch(cause => setError(cause instanceof Error ? cause.message : "Não foi possível atualizar a aplicabilidade."))} /><span>{editableManualSections.find(section => section.id === id)?.title ?? id}</span>{editorial?.sections[id]?.enabled === false && <span className="ml-auto text-xs text-muted-foreground">Não aplicável</span>}</label>)}</div></DialogContent></Dialog>
   </div>
 }
+
+const PageSheet = memo(function PageSheet({ page, preview, zoom, pageRefs, onNavigate }: { page: ManualPageData; preview: ManualPreview; zoom: number; pageRefs: React.RefObject<Map<number, HTMLDivElement>>; onNavigate: (id: string) => void }) {
+  const width = page.width * pointToPixel * zoom
+  const height = page.height * pointToPixel * zoom
+  return <div ref={element => { if (element) pageRefs.current.set(page.number, element); else pageRefs.current.delete(page.number) }} data-manual-page={page.number} className="shrink-0 bg-white shadow-lg ring-1 ring-black/5" style={{ width, height, contentVisibility: "auto", containIntrinsicSize: width + "px " + height + "px" }}><ManualPage page={page} layout={preview.layout} document={preview.document} onNavigate={onNavigate} /></div>
+})

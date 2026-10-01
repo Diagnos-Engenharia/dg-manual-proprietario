@@ -10,12 +10,12 @@ import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { saveDevelopmentModule } from "@/app/actions/developments"
 import { PersistenceStatus, usePersistenceStatus } from "@/hooks/use-persistence-status"
+import { normalizeManualIdentity, resolveManualIdentity, type ManualIdentity } from "@/lib/manual-identity"
 
 type PreviewTab = "capa" | "capitulo" | "conteudo" | "tabela" | "garantias"
 type Panel = "marca" | "logotipos" | "cobranding" | "hero" | "paleta" | "tipografia" | "direcao" | "elementos" | "capa" | "capitulos" | "cabecalho" | "rodape" | "tabelas" | "atencoes" | "recomendacoes" | "garantias" | "avisos"
-type Identity = { inheritance: "organization" | "development"; displayName: string; tagline: string; primary: string; secondary: string; accent: string; surface: string; text: string; typography: string; artDirection: string; graphicStyle: string; template: string; chapterTemplate: string; headerTemplate: string; footerTemplate: string; tableTemplate: string; heroUrl: string | null; developmentLogoUrl: string | null; coBranding: "development" | "development-organization" | "organization"; coBrandingOrder: "development-first" | "organization-first"; coBrandingLayout: "horizontal" | "vertical"; overlay: number; calloutStyles: { atencoes: string; recomendacoes: string; garantias: string; avisos: string } }
+type Identity = ManualIdentity
 
-const defaults: Identity = { inheritance: "development", displayName: "Empreendimento", tagline: "Manual do Proprietário", primary: "#17324D", secondary: "#B59A70", accent: "#E8DED0", surface: "#F4F1EA", text: "#17202A", typography: "manrope-inter", artDirection: "signature", graphicStyle: "architectural", template: "Signature", chapterTemplate: "Number Focus", headerTemplate: "Brand", footerTemplate: "Document Control", tableTemplate: "Clean", heroUrl: null, developmentLogoUrl: null, coBranding: "development-organization", coBrandingOrder: "development-first", coBrandingLayout: "horizontal", overlay: 35, calloutStyles: { atencoes: "border", recomendacoes: "soft", garantias: "badge", avisos: "neutral" } }
 const panels: Array<{ group: string; icon: typeof Palette; items: Array<[Panel, string]> }> = [
   { group: "IDENTIDADE", icon: Building2, items: [["marca", "Marca"], ["logotipos", "Logotipos"], ["cobranding", "Co-branding"], ["hero", "Imagem principal"]] },
   { group: "VISUAL", icon: Palette, items: [["paleta", "Paleta"], ["tipografia", "Tipografia"], ["direcao", "Direção visual"], ["elementos", "Elementos gráficos"]] },
@@ -28,10 +28,7 @@ const directions = ["signature", "editorial", "architectural", "essence", "corpo
 const templates = ["Signature", "Frame", "Axis", "Monolith", "Editorial", "Essence"]
 const options = { chapterTemplate: ["Number Focus", "Hero Split", "Editorial", "Minimal"], headerTemplate: ["Minimal", "Brand", "Technical"], footerTemplate: ["Minimal", "Document Control", "Branded"], tableTemplate: ["Clean", "Editorial", "Technical"] }
 
-function normalizeIdentity(value: unknown, displayName: string): Identity {
-  const old = value && typeof value === "object" ? value as Partial<Identity> : {}
-  return { ...defaults, ...old, displayName: old.displayName || displayName || defaults.displayName, calloutStyles: { ...defaults.calloutStyles, ...(old.calloutStyles ?? {}) } }
-}
+const normalizeIdentity = normalizeManualIdentity
 
 export function WhiteLabelStudio({ developmentId, organizationName, organizationLogo, organizationMetadata, persistedIdentity }: { developmentId?: string; organizationName: string; organizationLogo?: string | null; organizationMetadata?: string | null; persistedIdentity?: unknown }) {
   const metadata = useMemo(() => { try { return organizationMetadata ? JSON.parse(organizationMetadata) as Record<string, string> : {} } catch { return {} } }, [organizationMetadata])
@@ -50,8 +47,7 @@ export function WhiteLabelStudio({ developmentId, organizationName, organization
   const persistence = usePersistenceStatus(identity, saveIdentity)
   const update = (patch: Partial<Identity>) => setIdentity((current) => ({ ...current, ...patch }))
   const navigate = (panel: Panel) => { setActivePanel(panel); const group = panels.find((item) => item.items.some(([id]) => id === panel))?.group; if (group) setExpanded((current) => ({ ...current, [group]: true })); requestAnimationFrame(() => sectionRefs.current[panel]?.scrollIntoView({ behavior: "smooth", block: "start" })) }
-  const activeOrganizationColor = metadata.primaryColor ?? "#2563EB"
-  const effective = identity.inheritance === "organization" ? { ...identity, primary: activeOrganizationColor, secondary: metadata.secondaryColor ?? identity.secondary, developmentLogoUrl: null } : identity
+  const effective = resolveManualIdentity(identity, identity.displayName, organizationMetadata)
   const completeness = [identity.displayName, identity.primary, identity.typography, identity.artDirection, identity.template, identity.surface].filter(Boolean).length / 6 * 100
   const setFile = async (event: React.ChangeEvent<HTMLInputElement>, kind: "hero" | "logo") => { const file = event.target.files?.[0]; if (!file) return; if (!file.type.startsWith("image/") || file.size > 8 * 1024 * 1024) { setUploadError("Envie uma imagem de até 8MB."); return } setUploadError(null); const local = URL.createObjectURL(file); update(kind === "hero" ? { heroUrl: local } : { developmentLogoUrl: local }); if (!developmentId) return; try { const body = new FormData(); body.append("file", file); body.append("developmentId", developmentId); body.append("kind", kind); const response = await fetch("/api/brand/upload", { method: "POST", body }); if (!response.ok) throw new Error("Falha ao enviar imagem"); const result = await response.json(); update(kind === "hero" ? { heroUrl: result.url } : { developmentLogoUrl: result.url }) } catch { setUploadError("Não foi possível salvar a imagem. Tente novamente.") } }
   const contrast = (foreground: string, background: string) => { const lum = (hex: string) => { const rgb = hex.replace("#", "").match(/.{2}/g)?.map((part) => { const value = Number.parseInt(part, 16) / 255; return value <= .03928 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4 }) ?? [0, 0, 0]; return .2126 * rgb[0] + .7152 * rgb[1] + .0722 * rgb[2] }; const ratio = (Math.max(lum(foreground), lum(background)) + .05) / (Math.min(lum(foreground), lum(background)) + .05); return ratio >= 7 ? "Excelente" : ratio >= 4.5 ? "Adequado" : ratio >= 3 ? "Atenção" : "Insuficiente" }
