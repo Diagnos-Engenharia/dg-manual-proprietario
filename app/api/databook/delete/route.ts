@@ -1,15 +1,11 @@
 import { del } from "@vercel/blob"
 import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { databookFiles, developments } from "@/lib/db/schema"
 import { eq, and } from "drizzle-orm"
-import { headers } from "next/headers"
 import { recordAudit, requireDevelopmentRole } from "@/lib/organization"
 
 export async function DELETE(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user) return NextResponse.json({ error: "Não autenticado" }, { status: 401 })
   try {
     const { pathname } = await request.json() as { pathname?: string }
     if (!pathname) return NextResponse.json({ error: "Arquivo não informado" }, { status: 400 })
