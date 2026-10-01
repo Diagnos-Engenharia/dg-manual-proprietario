@@ -49,15 +49,10 @@ export async function listSystemValidationStates(developmentId:string){
   return rows.map(row=>({...row,status:row.status as ContentValidationStatus,section:row.section as ContentSection,updatedAt:row.updatedAt.toISOString()}))
 }
 
-async function validatorsForDevelopment(developmentId:string,organizationId:string){
-  const [admins,legacyValidators]=await Promise.all([
-    db.select({userId:members.userId}).from(members)
-      .where(and(eq(members.organizationId,organizationId),or(eq(members.role,"owner"),eq(members.role,"admin")),eq(members.status,"active"))),
-    db.select({userId:members.userId}).from(developmentAssignments)
-      .innerJoin(members,eq(developmentAssignments.memberId,members.id))
-      .where(and(eq(developmentAssignments.developmentId,developmentId),eq(developmentAssignments.organizationId,organizationId),eq(developmentAssignments.role,"validator"),eq(members.status,"active"))),
-  ])
-  return Array.from(new Set([...admins,...legacyValidators].map(row=>row.userId)))
+async function validatorsForDevelopment(_developmentId:string,organizationId:string){
+  const admins=await db.select({userId:members.userId}).from(members)
+    .where(and(eq(members.organizationId,organizationId),or(eq(members.role,"owner"),eq(members.role,"admin")),eq(members.status,"active")))
+  return Array.from(new Set(admins.map(row=>row.userId)))
 }
 
 async function getContentValidation(developmentId:string,organizationId:string,contextKey:string,section:ContentSection){
@@ -85,7 +80,7 @@ export async function submitSystemItemForValidation(input:{developmentId:string;
 }
 
 async function decideContentValidation(input:{developmentId:string;contextKey:string;section:ContentSection;label:string;decision:"aprovado"|"reprovado";comment?:string}){
-  const context=await requireDevelopmentRole(input.developmentId,["admin","validator"])
+  const context=await requireDevelopmentRole(input.developmentId,["admin"])
   const existing=await getContentValidation(input.developmentId,context.organization.id,input.contextKey,input.section)
   if(!existing||existing.status!=="aguardando_validacao")throw new Error("Este conteúdo não está aguardando validação")
   if(input.decision==="aprovado"&&existing.lastEditorId===context.user.id)return {error:"Quem enviou o conteúdo não pode aprovar a própria edição. Solicite a validação de outro usuário."}
