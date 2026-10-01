@@ -13,8 +13,8 @@ import { assertId,cleanText,InputValidationError } from "@/lib/security/input"
 export async function POST(request: Request) {
   try{
   const body = await request.json().catch(() => ({})) as { developmentId?: string; manualType?: string; comment?: string }
-  if (!developmentId) return NextResponse.json({ error: "Empreendimento não informado" }, { status: 400 })
-  const developmentId=assertId(developmentId,"Empreendimento")
+  if (!body.developmentId) return NextResponse.json({ error: "Empreendimento não informado" }, { status: 400 })
+  const developmentId=assertId(body.developmentId,"Empreendimento")
   if(body.manualType&&body.manualType!=="sindico"&&body.manualType!=="proprietario")return NextResponse.json({error:"Tipo de manual inválido"},{status:400})
   const manualType = body.manualType === "sindico" ? "sindico" : "proprietario"
   const comment=body.comment?.trim()?cleanText(body.comment,"Comentário",1000):null
