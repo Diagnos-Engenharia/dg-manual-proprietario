@@ -35,6 +35,18 @@ export const auth = betterAuth({
     toOrigin(process.env.V0_RUNTIME_URL) ??
     (process.env.NODE_ENV === "development" ? "http://localhost:3000" : undefined),
   emailAndPassword: { enabled: true, autoSignIn: true },
+  rateLimit: {
+    enabled: true,
+    storage: "database",
+    modelName: "rateLimit",
+    window: 60,
+    max: 100,
+    customRules: {
+      "/sign-in/email": { window: 60, max: 8 },
+      "/sign-up/email": { window: 300, max: 5 },
+      "/change-password": { window: 300, max: 5 },
+    },
+  },
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
       if (ctx.path !== "/sign-in/email") return
