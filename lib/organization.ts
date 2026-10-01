@@ -106,5 +106,5 @@ export async function recordAudit(input:{organizationId:string;actorId:string;ac
 }
 
 export function canEditContent(role:DevelopmentRole){return role==="admin"||role==="admin_empreendimento"||role==="editor"}
-export function canValidateContent(role:DevelopmentRole){return role==="admin"||role==="validator"}
+export function canValidateContent(role:DevelopmentRole){return role==="admin"}
 export function canManageMembers(role:string){return isGlobalAdmin(role)}
