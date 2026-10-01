@@ -1,6 +1,6 @@
 'use server'
 
-import { and, eq } from "drizzle-orm"
+import { and, eq, or } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { db } from "@/lib/db"
 import {
@@ -20,8 +20,8 @@ export type ContentSection="sistemas"|"manutencao"
 async function transition(id:string,next:ValidationStatus,comment?:string){
   const context=await requireDevelopmentAccess(id)
   const role=context.developmentRole
-  if(["rascunho","em_elaboracao","aguardando_validacao","reenviado","arquivado"].includes(next)&&!canEditContent(role))throw new Error("Somente administradores e editores podem alterar o conteúdo")
-  if(["ajustes_solicitados","aprovado","publicado"].includes(next)&&!canValidateContent(role))throw new Error("Somente administradores e validadores podem validar")
+  if(["rascunho","em_elaboracao","aguardando_validacao","reenviado","arquivado"].includes(next)&&!canEditContent(role))throw new Error("Somente Administradores e Construtores podem alterar o conteúdo")
+  if(["ajustes_solicitados","aprovado","publicado"].includes(next)&&!canValidateContent(role))throw new Error("Somente Administradores podem validar")
   if(next==="aprovado"&&context.development.lastEditorId===context.user.id)throw new Error("Quem editou por último não pode aprovar o próprio conteúdo")
   const version=context.development.version
   await db.update(developments).set({workflowStatus:next,...(next==="aprovado"?{approvedVersion:version,approvedBy:context.user.id,approvedAt:new Date()}:{}),updatedAt:new Date()}).where(and(eq(developments.id,id),eq(developments.organizationId,context.organization.id)))
@@ -50,10 +50,14 @@ export async function listSystemValidationStates(developmentId:string){
 }
 
 async function validatorsForDevelopment(developmentId:string,organizationId:string){
-  const rows=await db.select({userId:members.userId}).from(developmentAssignments)
-    .innerJoin(members,eq(developmentAssignments.memberId,members.id))
-    .where(and(eq(developmentAssignments.developmentId,developmentId),eq(developmentAssignments.organizationId,organizationId),eq(developmentAssignments.role,"validator"),eq(members.status,"active")))
-  return Array.from(new Set(rows.map(row=>row.userId)))
+  const [admins,legacyValidators]=await Promise.all([
+    db.select({userId:members.userId}).from(members)
+      .where(and(eq(members.organizationId,organizationId),or(eq(members.role,"owner"),eq(members.role,"admin")),eq(members.status,"active"))),
+    db.select({userId:members.userId}).from(developmentAssignments)
+      .innerJoin(members,eq(developmentAssignments.memberId,members.id))
+      .where(and(eq(developmentAssignments.developmentId,developmentId),eq(developmentAssignments.organizationId,organizationId),eq(developmentAssignments.role,"validator"),eq(members.status,"active"))),
+  ])
+  return Array.from(new Set([...admins,...legacyValidators].map(row=>row.userId)))
 }
 
 async function getContentValidation(developmentId:string,organizationId:string,contextKey:string,section:ContentSection){
@@ -81,7 +85,7 @@ export async function submitSystemItemForValidation(input:{developmentId:string;
 }
 
 async function decideContentValidation(input:{developmentId:string;contextKey:string;section:ContentSection;label:string;decision:"aprovado"|"reprovado";comment?:string}){
-  const context=await requireDevelopmentRole(input.developmentId,["admin","admin_empreendimento","validator"])
+  const context=await requireDevelopmentRole(input.developmentId,["admin","validator"])
   const existing=await getContentValidation(input.developmentId,context.organization.id,input.contextKey,input.section)
   if(!existing||existing.status!=="aguardando_validacao")throw new Error("Este conteúdo não está aguardando validação")
   if(input.decision==="aprovado"&&existing.lastEditorId===context.user.id)return {error:"Quem enviou o conteúdo não pode aprovar a própria edição. Solicite a validação de outro usuário."}
