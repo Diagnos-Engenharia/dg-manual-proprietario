@@ -86,7 +86,11 @@ export const auth = betterAuth({
     ...(process.env.NODE_ENV === "production" ? productionOrigins : []),
   ],
   session: { expiresIn: 60 * 60 * 24 * 7, updateAge: 60 * 60 * 24 },
-  ...(process.env.NODE_ENV === "development"
-    ? { advanced: { defaultCookieAttributes: { sameSite: "none" as const, secure: true } } }
-    : {}),
+  advanced: {
+    defaultCookieAttributes: {
+      httpOnly: true,
+      secure: true,
+      sameSite: process.env.NODE_ENV === "development" ? "none" as const : "lax" as const,
+    },
+  },
 })
