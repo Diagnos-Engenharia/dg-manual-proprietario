@@ -22,7 +22,7 @@ export async function POST(request: Request) {
   await consumeRateLimit("manual-compile:"+context.user.id,{max:20,windowSeconds:3600})
   const row = await db.select({ id: developments.id, name: developments.name, organizationId: developments.organizationId, data: developments.data }).from(developments).where(and(eq(developments.id, developmentId), eq(developments.organizationId, context.organization.id))).limit(1)
   if (!row[0]) return NextResponse.json({ error: "Empreendimento não encontrado" }, { status: 404 })
-  const existing = await db.select({ revision: manualVersions.revision }).from(manualVersions).where(and(eq(manualVersions.developmentId, developmentId), eq(manualVersions.manualType, manualType))).orderBy(desc(manualVersions.revision)).limit(1)
+  const existing = await db.select({ revision: manualVersions.revision }).from(manualVersions).where(and(eq(manualVersions.developmentId, developmentId), eq(manualVersions.organizationId, context.organization.id), eq(manualVersions.manualType, manualType))).orderBy(desc(manualVersions.revision)).limit(1)
   const finishing = manualType === "proprietario" ? (await db.select().from(finishingTables).where(and(eq(finishingTables.developmentId, developmentId), eq(finishingTables.organizationId, context.organization.id))).orderBy(desc(finishingTables.updatedAt)).limit(1))[0] : undefined
   const revision = (existing[0]?.revision ?? 0) + 1
   const data = (row[0].data ?? {}) as Record<string, unknown>
@@ -94,8 +94,8 @@ export async function POST(request: Request) {
   const filename = `${slug}_${label}_Rev-${String(revision).padStart(2, "0")}_${date}.pdf`
   const blob = await saveManualFile(`manuals/${row[0].organizationId}/${developmentId}/${filename}`, Buffer.from(bytes))
   const id = crypto.randomUUID()
-  await db.insert(manualVersions).values({ id, developmentId: developmentId, organizationId: context.organization.id, manualType, revision, status: "rascunho", comment: body.comment?.trim() || null, filename, pathname: blob.pathname, sections: sectionCount, pages: pdf.getPageCount(), attachments: (await db.select({ id: databookFiles.id }).from(databookFiles).where(eq(databookFiles.developmentId, developmentId))).length, finishingTableId: finishing?.id ?? null, finishingRevision: finishing?.revision ?? null, finishingRows: finishingRows.length, createdBy: context.user.id })
-  await db.update(developments).set({ version: revision, lastEditorId: context.user.id, updatedAt: new Date() }).where(eq(developments.id, developmentId))
+  await db.insert(manualVersions).values({ id, developmentId: developmentId, organizationId: context.organization.id, manualType, revision, status: "rascunho", comment, filename, pathname: blob.pathname, sections: sectionCount, pages: pdf.getPageCount(), attachments: (await db.select({ id: databookFiles.id }).from(databookFiles).where(eq(databookFiles.developmentId, developmentId))).length, finishingTableId: finishing?.id ?? null, finishingRevision: finishing?.revision ?? null, finishingRows: finishingRows.length, createdBy: context.user.id })
+  await db.update(developments).set({ version: revision, lastEditorId: context.user.id, updatedAt: new Date() }).where(and(eq(developments.id, developmentId),eq(developments.organizationId,context.organization.id)))
   await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: "manual.issued", entityType: "development", entityId: developmentId, metadata: { path: ["emissao", manualType], before: null, after: { filename, revision, pages: pdf.getPageCount() } } })
   return NextResponse.json({ id, filename, revision, sections: sectionCount, pages: pdf.getPageCount() }, { status: 201 })
   }catch(error){
