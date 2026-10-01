@@ -181,14 +181,17 @@ function combinedStatus(statuses: ContentStatus[]): ContentStatus {
   return statuses.length ? "aprovado" : "sem_conteudo"
 }
 
-/** Single publication builder. No draft technical payload survives this boundary. */
-export function buildManualDocument(input: BuildManualDocumentInput): ManualDocument {
+/** One builder: publication remains approved-only; review preview may show submitted content. */
+export function buildManualDocument(input: BuildManualDocumentInput, purpose: "publication" | "preview" = "publication"): ManualDocument {
+  const visible = (status: ContentStatus) => status === "aprovado" || (purpose === "preview" && status === "aguardando_validacao")
+  const rendered = (blocks: ManualBlock[], status: ContentStatus, editHref?: string): ManualBlock[] => blocks.map(block => ({ ...block, ...(status === "aguardando_validacao" ? { reviewStatus: "aguardando_validacao" as const } : {}), ...(editHref ? { editHref } : {}) }))
+  const policy = (status: ContentStatus): ManualSection["renderPolicy"] => status === "aprovado" ? "approved" : visible(status) ? "review" : "structure"
   const scope: ChecklistScope = manualScope(input.manualType)
   const content = (record(input.data.manuals)[input.manualType] ?? {}) as ManualContent
   const editorial = content.editorial ?? {}
   const baseHref = `/empreendimentos/${encodeURIComponent(input.developmentId)}`
   const manualQuery = `&manual=${input.manualType}`
-  const editHref = `${baseHref}?modulo=emissao${manualQuery}&secao=`
+  const editHref = `${baseHref}?modulo=elaboracao&aba=textos${manualQuery}&secao=`
   const section = (definition: SectionDefinition): ManualSection => {
     const stored = editorial.sections?.[definition.id]
     const disabled = definition.optional && stored?.enabled === false
@@ -197,14 +200,16 @@ export function buildManualDocument(input: BuildManualDocumentInput): ManualDocu
     return {
       id: definition.id, title: definition.title, number: definition.number,
       type: definition.number && !definition.number.includes(".") ? "chapter" : "content",
-      validationStatus: disabled ? "nao_aplicavel" : status, renderPolicy: status === "aprovado" && !disabled ? "approved" : "structure",
-      blocks: status === "aprovado" && !disabled ? approvedHtmlBlocks(stored?.html ?? "") : [],
+      validationStatus: disabled ? "nao_aplicavel" : status, renderPolicy: !disabled ? policy(status) : "structure",
+      blocks: visible(status) && !disabled ? rendered(approvedHtmlBlocks(stored?.html ?? ""), status) : [],
       children: (definition.children ?? []).filter(child => !child.optional || editorial.sections?.[child.id]?.enabled !== false).map(section), editHref: editHref + definition.id, optional: definition.optional,
     }
   }
   const sections = definitions.map(section)
   const byId = new Map(sections.flatMap(parent => [parent, ...parent.children]).map(value => [value.id, value]))
   const metadataSection = byId.get("ficha-tecnica")!
+  metadataSection.editHref = `${baseHref}?modulo=informacoes${manualQuery}`
+  byId.get("identificacao")!.editHref = metadataSection.editHref
   const ficha = record(input.data.ficha)
   const fichaRows = [["Torres", ficha.towers ?? ficha.torres], ["Apartamentos", ficha.apartments ?? ficha.apartamentos], ["Tipologias", ficha.typologies ?? ficha.tipologias], ["Áreas das unidades privativas (m²)", ficha.areas], ["Finalização do empreendimento", ficha.completionDate]]
     .map(([label, value]) => [String(label), text(value)]).filter(([, value]) => value)
@@ -220,29 +225,32 @@ export function buildManualDocument(input: BuildManualDocumentInput): ManualDocu
     return (first < 0 ? Number.MAX_SAFE_INTEGER : first) - (second < 0 ? Number.MAX_SAFE_INTEGER : second)
   }))
   const maintenanceRows: string[][] = []
+  const reviewMaintenance: ManualBlock[] = []
   const systemSections = sortedSystems.map((system, index): ManualSection => {
     const description: ContentStatus = system.descriptionStatus === "rascunho" && !htmlToLines(system.html).length ? "sem_conteudo" : system.descriptionStatus
     const maintenance: ContentStatus = system.maintenanceStatus === "rascunho" && !system.maintenance.length ? "sem_conteudo" : system.maintenanceStatus
     const blocks: ManualBlock[] = []
-    if (description === "aprovado") {
-      blocks.push({ type: "heading", text: "Descrição do sistema", level: 3 })
-      blocks.push(...approvedHtmlBlocks(system.html).filter(block => !(block.type === "heading" && block.text.toLocaleLowerCase("pt-BR") === system.item.item.toLocaleLowerCase("pt-BR"))))
-      if (system.item.norms.length) blocks.push({ type: "paragraph", text: `Normas de referência: ${system.item.norms.join(", ")}` })
+    if (visible(description)) {
+      const descriptionBlocks: ManualBlock[] = [{ type: "heading", text: "Descrição do sistema", level: 3 }, ...approvedHtmlBlocks(system.html).filter(block => !(block.type === "heading" && block.text.toLocaleLowerCase("pt-BR") === system.item.item.toLocaleLowerCase("pt-BR")))]
+      if (system.item.norms.length) descriptionBlocks.push({ type: "paragraph", text: `Normas de referência: ${system.item.norms.join(", ")}` })
+      blocks.push(...rendered(descriptionBlocks, description))
     }
-    if (maintenance === "aprovado" && system.maintenance.length) {
-      blocks.push({ type: "heading", text: "Manutenção e conservação", level: 3 })
-      blocks.push({ type: "maintenanceTable", headers: ["Periodicidade", "Atividade", "Responsável"], rows: system.maintenance.map(row => [row.frequency, row.task, row.responsible]), widths: [1, 2.6, 1.1] })
-      maintenanceRows.push(...system.maintenance.map(row => [system.item.item, row.frequency, row.task, row.responsible]))
+    if (visible(maintenance) && system.maintenance.length) {
+      const maintenanceHref = `${baseHref}?modulo=elaboracao&aba=sistemas${manualQuery}&conteudo=manutencao&item=${encodeURIComponent(system.key)}`
+      blocks.push(...rendered([{ type: "heading", text: "Manutenção e conservação", level: 3 }, { type: "maintenanceTable", headers: ["Periodicidade", "Atividade", "Responsável"], rows: system.maintenance.map(row => [row.frequency, row.task, row.responsible]), widths: [1, 2.6, 1.1] }], maintenance, maintenanceHref))
+      if (maintenance === "aprovado") maintenanceRows.push(...system.maintenance.map(row => [system.item.item, row.frequency, row.task, row.responsible]))
+      else reviewMaintenance.push(...rendered([{ type: "maintenanceTable", title: system.item.item, headers: ["Sistema", "Periodicidade", "Atividade", "Responsável"], rows: system.maintenance.map(row => [system.item.item, row.frequency, row.task, row.responsible]), widths: [1.4, 1, 2.6, 1.1] }], maintenance, maintenanceHref))
     }
-    return { id: `sistema-${system.item.id}`, type: "system", title: system.item.item, number: `4.${index + 1}`, validationStatus: combinedStatus([description, maintenance]), renderPolicy: blocks.length ? "approved" : "structure", blocks, children: [], componentStatuses: [{ label: "Descrição técnica", status: description }, { label: "Manutenção", status: maintenance }], editHref: `${baseHref}?modulo=elaboracao&aba=sistemas${manualQuery}&item=${encodeURIComponent(system.key)}` }
+    return { id: `sistema-${system.item.id}`, type: "system", title: system.item.item, number: `4.${index + 1}`, validationStatus: combinedStatus([description, maintenance]), renderPolicy: blocks.some(block => block.reviewStatus) ? "review" : blocks.length ? "approved" : "structure", blocks, children: [], componentStatuses: [{ label: "Descrição técnica", status: description }, { label: "Manutenção", status: maintenance }], editHref: `${baseHref}?modulo=elaboracao&aba=sistemas${manualQuery}&item=${encodeURIComponent(system.key)}` }
   })
   byId.get("sistemas")!.children = systemSections
+  byId.get("sistemas")!.editHref = `${baseHref}?modulo=elaboracao&aba=sistemas${manualQuery}`
   byId.get("sistemas")!.validationStatus = combinedStatus(systemSections.map(value => value.validationStatus))
   const consolidated = byId.get("manutencao-tabela")!
-  consolidated.blocks = maintenanceRows.length ? [{ type: "maintenanceTable", headers: ["Sistema", "Periodicidade", "Atividade", "Responsável"], rows: maintenanceRows, widths: [1.4, 1, 2.6, 1.1] }] : []
+  consolidated.blocks = [...(maintenanceRows.length ? [{ type: "maintenanceTable" as const, headers: ["Sistema", "Periodicidade", "Atividade", "Responsável"], rows: maintenanceRows, widths: [1.4, 1, 2.6, 1.1] }] : []), ...reviewMaintenance]
   consolidated.validationStatus = combinedStatus(systemSections.map(system => system.componentStatuses![1].status))
-  consolidated.renderPolicy = maintenanceRows.length ? "approved" : "structure"
-  consolidated.editHref = `${baseHref}?modulo=elaboracao&aba=sistemas${manualQuery}`
+  consolidated.renderPolicy = reviewMaintenance.length ? "review" : maintenanceRows.length ? "approved" : "structure"
+  consolidated.editHref = `${baseHref}?modulo=elaboracao&aba=sistemas${manualQuery}&conteudo=manutencao`
 
   const authoring = record(input.data.authoring)
   const contacts = (Array.isArray(authoring.contacts) ? authoring.contacts : []).map(value => record(value)).filter(value => value.kind === "projetista" || value.kind === "fornecedor").map(value => Object.fromEntries(["id", "kind", "name", "company", "discipline", "registration", "phone", "whatsapp", "email", "warranty", "nbr"].map(key => [key, text(value[key])]))) as TechnicalContact[]
@@ -251,8 +259,8 @@ export function buildManualDocument(input: BuildManualDocumentInput): ManualDocu
     const target = byId.get(id)!
     if (contacts.some(contact => contact.kind === kind)) {
       target.validationStatus = manualValidationStatus(input.validations, `${id}::${scope}`, "editorial")
-      target.renderPolicy = target.validationStatus === "aprovado" ? "approved" : "structure"
-      if (target.validationStatus === "aprovado") target.blocks.push(...contactBlocks(contacts, kind))
+      target.renderPolicy = policy(target.validationStatus)
+      if (visible(target.validationStatus)) target.blocks.push(...rendered(contactBlocks(contacts, kind), target.validationStatus))
     }
     target.editHref = `${baseHref}?modulo=elaboracao&aba=contatos${manualQuery}`
   }
@@ -261,8 +269,8 @@ export function buildManualDocument(input: BuildManualDocumentInput): ManualDocu
   const responsible = byId.get("responsaveis-tecnicos")!
   if (contacts.some(contact => contact.kind === "projetista")) {
     responsible.validationStatus = manualValidationStatus(input.validations, `responsaveis-tecnicos::${scope}`, "editorial")
-    responsible.renderPolicy = responsible.validationStatus === "aprovado" ? "approved" : "structure"
-    if (responsible.validationStatus === "aprovado") responsible.blocks.push(...contactBlocks(contacts, "projetista"))
+    responsible.renderPolicy = policy(responsible.validationStatus)
+    if (visible(responsible.validationStatus)) responsible.blocks.push(...rendered(contactBlocks(contacts, "projetista"), responsible.validationStatus))
   }
   const commissioning = selectManualCommissioning(input.data, input.manualType)
   for (const id of ["energia", "agua", "gas", "telecom"]) {
@@ -270,11 +278,11 @@ export function buildManualDocument(input: BuildManualDocumentInput): ManualDocu
     if (!Object.values(value).some(item => text(item))) continue
     const target = byId.get(id)!
     target.validationStatus = manualValidationStatus(input.validations, `${id}::${scope}`, "editorial")
-    target.renderPolicy = target.validationStatus === "aprovado" ? "approved" : "structure"
-    if (target.validationStatus === "aprovado") {
+    target.renderPolicy = policy(target.validationStatus)
+    if (visible(target.validationStatus)) {
       const rows = [["Empresa", text(value.company)], ["Telefone", text(value.phone)], ["Site", text(value.site)]].filter(([, value]) => value)
-      if (rows.length) target.blocks.push({ type: "table", headers: ["Atendimento", "Contato"], rows, widths: [1, 3] })
-      if (text(value.instructions)) target.blocks.push({ type: "paragraph", text: text(value.instructions) })
+      if (rows.length) target.blocks.push(...rendered([{ type: "table", headers: ["Atendimento", "Contato"], rows, widths: [1, 3] }], target.validationStatus))
+      if (text(value.instructions)) target.blocks.push(...rendered([{ type: "paragraph", text: text(value.instructions) }], target.validationStatus))
     }
     target.editHref = `${baseHref}?modulo=elaboracao&aba=comissionamento${manualQuery}&servico=${id}`
   }
@@ -282,8 +290,8 @@ export function buildManualDocument(input: BuildManualDocumentInput): ManualDocu
   const warrantyRows = Array.isArray(editorial.warranties) ? editorial.warranties : []
   if (warrantyRows.length) {
     warranties.validationStatus = manualValidationStatus(input.validations, `garantias-tabela::${scope}`, "editorial")
-    warranties.renderPolicy = warranties.validationStatus === "aprovado" ? "approved" : "structure"
-    if (warranties.validationStatus === "aprovado") warranties.blocks.push(...warrantyTableBlocks(warrantyRows))
+    warranties.renderPolicy = policy(warranties.validationStatus)
+    if (visible(warranties.validationStatus)) warranties.blocks.push(...rendered(warrantyTableBlocks(warrantyRows), warranties.validationStatus))
   }
 
   const finishing = byId.get("acabamentos")!
@@ -293,7 +301,10 @@ export function buildManualDocument(input: BuildManualDocumentInput): ManualDocu
     let finishIndex = 0
     finishing.children = towers.map((tower, index): ManualSection => {
       const tables = input.finishing.filter(table => table.tower === tower).sort((a, b) => a.typology.localeCompare(b.typology, "pt-BR", { numeric: true }))
-      const children = tables.map((table): ManualSection => ({ id: `acabamento-${table.id}`, type: "content", title: table.typology, validationStatus: table.status === "aprovado" ? "aprovado" : table.status === "aguardando_validacao" ? "aguardando_validacao" : table.status === "reprovado" ? "reprovado" : "rascunho", renderPolicy: table.status === "aprovado" ? "approved" : "structure", blocks: table.status === "aprovado" ? finishingTableBlocks(table) : [], children: [], editHref: `${finishing.editHref}&tipologia=${encodeURIComponent(table.typology)}`, number: `7.2.${++finishIndex}` }))
+      const children = tables.map((table): ManualSection => {
+        const status: ContentStatus = table.status === "aprovado" || table.status === "aguardando_validacao" || table.status === "reprovado" ? table.status : "rascunho"
+        return { id: `acabamento-${table.id}`, type: "content", title: table.typology, validationStatus: status, renderPolicy: policy(status), blocks: visible(status) ? rendered(finishingTableBlocks(table), status) : [], children: [], editHref: `${finishing.editHref}&tipologia=${encodeURIComponent(table.typology)}`, number: `7.2.${++finishIndex}` }
+      })
       return { id: `acabamentos-torre-${index}`, type: "content", title: tower || "Acabamentos das unidades", validationStatus: combinedStatus(children.map(value => value.validationStatus)), renderPolicy: "structure", blocks: [], children, editHref: finishing.editHref }
     })
     finishing.validationStatus = combinedStatus(finishing.children.map(value => value.validationStatus))
@@ -316,5 +327,5 @@ export function buildManualDocument(input: BuildManualDocumentInput): ManualDocu
   const cover: ManualSection = { id: "capa", type: "cover", title: "Capa", validationStatus: "aprovado", renderPolicy: "metadata", blocks: [], children: [], editHref: `${baseHref}?modulo=identidade${manualQuery}` }
   const toc: ManualSection = { id: "sumario", type: "toc", title: "Sumário", validationStatus: "aprovado", renderPolicy: "metadata", blocks: [], children: [] }
   sections.splice(1, 0, toc)
-  return { schemaVersion: 1, metadata: { developmentId: input.developmentId, developmentName: input.name, organizationName: input.organization.name, organizationLogo: input.organization.logo, manualType: input.manualType, title, revision: input.revision, date: generatedAt.slice(0, 10), generatedAt }, identity: resolveManualIdentity(input.data.identity ?? input.data.brand, input.name, input.organization.metadata), sections: [cover, ...sections], attachments }
+  return { schemaVersion: 1, metadata: { developmentId: input.developmentId, developmentName: input.name, organizationName: input.organization.name, organizationLogo: input.organization.logo, manualType: input.manualType, title, revision: input.revision, date: generatedAt.slice(0, 10), generatedAt, purpose }, identity: resolveManualIdentity(input.data.identity ?? input.data.brand, input.name, input.organization.metadata), sections: [cover, ...sections], attachments }
 }

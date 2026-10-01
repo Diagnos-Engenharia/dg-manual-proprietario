@@ -4,6 +4,7 @@ import { manualFontMetrics } from "./fonts"
 import { flattenSections, type DrawingCommand, type ManualBlock, type ManualDocument, type ManualPage, type ManualSection, type PaginatedManual } from "./types"
 
 export const A4 = { width: 210 * 72 / 25.4, height: 297 * 72 / 25.4 }
+export const REVIEW_TEXT_COLOR = "#B77900"
 const LEFT = 44
 const RIGHT = A4.width - LEFT
 const WIDTH = RIGHT - LEFT
@@ -49,12 +50,18 @@ class Paginator {
   page!: ManualPage
   y = TOP
   section!: ManualSection
+  contentSection?: ManualSection
+  activeBlock?: ManualBlock
+  reviewTitle = false
   warnings: string[] = []
   constructor(readonly document: ManualDocument, readonly fonts: Fonts, readonly tocDestinations: PaginatedManual["destinations"]) {}
   get identity() { return this.document.identity }
   command(value: DrawingCommand) { this.page.commands.push(value) }
   text(text: string, x: number, top: number, size = 10, font: Font = "body", color = this.identity.text, link?: string) {
-    this.command({ type: "text", x, y: top + this.fonts[font].heightAtSize(size, { descender: false }), text: plain(text), size, font, color, ...(link ? { link } : {}) })
+    const linked = link?.startsWith("#") ? flattenSections(this.document.sections).find(section => section.id === link.slice(1)) : undefined
+    const origin = linked ?? this.contentSection
+    const review = this.activeBlock?.reviewStatus === "aguardando_validacao" || this.reviewTitle
+    this.command({ type: "text", x, y: top + this.fonts[font].heightAtSize(size, { descender: false }), text: plain(text), size, font, color: review ? REVIEW_TEXT_COLOR : color, ...(link ? { link } : {}), ...(origin ? { sectionId: origin.id, editHref: this.activeBlock?.editHref ?? origin.editHref } : {}), ...(review ? { reviewStatus: "aguardando_validacao" as const } : {}) })
   }
   rect(x: number, y: number, width: number, height: number, color: string, opacity?: number) { this.command({ type: "rect", x, y, width, height, color, ...(opacity === undefined ? {} : { opacity }) }) }
   line(x: number, y: number, x2: number, y2: number, color = this.identity.accent, width = 1) { this.command({ type: "line", x, y, x2, y2, color, width }) }
@@ -67,6 +74,8 @@ class Paginator {
     this.pages.push(this.page); this.y = TOP
     this.rect(0, 0, A4.width, A4.height, cover ? this.identity.primary : this.identity.surface)
     if (cover) return
+    const contentSection = this.contentSection, activeBlock = this.activeBlock, reviewTitle = this.reviewTitle
+    this.contentSection = undefined; this.activeBlock = undefined; this.reviewTitle = false
     const identity = this.identity
     if (identity.headerTemplate === "Brand") {
       this.rect(LEFT, 37, 3, 23, identity.primary)
@@ -78,6 +87,7 @@ class Paginator {
       this.text(this.short(this.document.metadata.title, 7, WIDTH), LEFT, 54, 7)
     } else this.text(this.short(this.document.metadata.developmentName, 8, WIDTH), LEFT, 44, 8)
     this.line(LEFT, 69, RIGHT, 69, identity.accent, .7)
+    this.contentSection = contentSection; this.activeBlock = activeBlock; this.reviewTitle = reviewTitle
   }
   ensure(height: number) { if (!this.page || this.y + height > BOTTOM) this.newPage() }
   register(section: ManualSection) {
@@ -306,6 +316,7 @@ class Paginator {
     }
   }
   block(block: ManualBlock) {
+    this.activeBlock = block
     switch (block.type) {
       case "heading": this.heading(block.text, block.level ?? 3); break
       case "paragraph": this.paragraph(block.text); break
@@ -319,9 +330,12 @@ class Paginator {
         break
       }
     }
+    this.activeBlock = undefined
   }
   visit(section: ManualSection) {
     this.section = section
+    this.contentSection = section
+    this.reviewTitle = this.document.metadata.purpose === "preview" && section.validationStatus === "aguardando_validacao"
     if (section.type === "cover") { this.newPage(true); this.register(section); this.cover() }
     else if (section.type === "toc") { this.newPage(); this.register(section); this.toc() }
     else if (section.type === "chapter") { if (!this.page) this.newPage(); this.chapter(section); this.register(section) }
@@ -330,10 +344,12 @@ class Paginator {
       this.ensure(75); this.register(section)
       this.heading(`${section.number ? `${section.number} ` : ""}${section.title}`, section.type === "system" ? 2 : 3, section.id)
     }
+    this.reviewTitle = false
     section.blocks.forEach(block => this.block(block))
     section.children.forEach(child => this.visit(child))
   }
   finish() {
+    this.contentSection = undefined; this.activeBlock = undefined; this.reviewTitle = false
     for (const page of this.pages) {
       if (page.commands.some(command => command.type === "text") && !this.document.sections.some(item => item.id === page.sectionId && item.type === "cover")) {
         this.page = page

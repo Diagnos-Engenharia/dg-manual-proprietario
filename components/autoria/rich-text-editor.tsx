@@ -32,7 +32,9 @@ export function RichTextEditor({ value, onChange, disabled, onInsertVariable }: 
     onUpdate: ({ editor: instance }) => onChange(sanitizeHtml(instance.getHTML())),
   })
 
-  useEffect(() => { editor?.setEditable(!disabled) }, [disabled, editor])
+  // Permission/loading changes are not text edits. Tiptap otherwise emits an
+  // update before a newly loaded value is synchronized, restoring a stale draft.
+  useEffect(() => { editor?.setEditable(!disabled, false) }, [disabled, editor])
   useEffect(() => { if (editor && editor.getHTML() !== value) editor.commands.setContent(sanitizeHtml(value), { emitUpdate: false }) }, [editor, value])
 
   function insertLink() {

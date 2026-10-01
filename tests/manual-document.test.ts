@@ -6,6 +6,8 @@ import { assessManualReadiness } from "@/lib/completion"
 import { getChecklistItemScopes, type ChecklistItem } from "@/lib/mock-data"
 import type { ManualContentValidation } from "@/lib/manual-content"
 import { changedValidationContexts } from "@/lib/manual-document/invalidation"
+import { paginateManualDocument, REVIEW_TEXT_COLOR } from "@/lib/manual-document/paginate"
+import { renderManualPdf } from "@/lib/manual-document/pdf"
 
 const item = (id: string, scopes: ("unidade" | "comum")[] = ["unidade"]): ChecklistItem => ({ id, item: id, category: "Sistemas", scope: scopes[0], scopes, status: "possui", norms: [], obsProprietario: "", obsSindico: "" })
 const validation = (id: string, section = "sistemas", status = "aprovado", scope = "unidade"): ManualContentValidation => ({ contextKey: `${id}::${scope}`, section, status })
@@ -168,4 +170,49 @@ test("document edit links preserve manual and route to the specific system, serv
   const manager = buildManualDocument({ ...source, manualType: "sindico" })
   assert.equal(new URL(find(manager, "sistema-both").editHref!, "https://test.invalid").searchParams.get("manual"), "sindico")
   assert.equal(new URL(find(manager, "sistema-both").editHref!, "https://test.invalid").searchParams.get("item"), "both::comum")
+})
+
+test("review preview shows only submitted text in yellow; approval restores design and publication excludes review text", async () => {
+  const data = { checklist: [item("waiting"), item("approved"), item("draft"), item("rejected"), item("common", ["comum"])], manuals: { proprietario: { sistemas: { "waiting::unidade": "<p>TEXTO_EM_VALIDACAO</p>", "approved::unidade": "<p>TEXTO_APROVADO</p>", "draft::unidade": "<p>TEXTO_RASCUNHO</p>", "rejected::unidade": "<p>TEXTO_REPROVADO</p>" }, manutencao: { "waiting::unidade": [{ task: "MANUTENCAO_APROVADA", frequency: "Anual", responsible: "Proprietário" }], "approved::unidade": [{ task: "MANUTENCAO_EM_VALIDACAO", frequency: "Mensal", responsible: "Proprietário" }] } }, sindico: { sistemas: { "common::comum": "<p>OUTRO_ESCOPO</p>" } } } }
+  const source = input(data, [validation("waiting", "sistemas", "aguardando_validacao"), validation("waiting", "manutencao"), validation("approved"), validation("approved", "manutencao", "aguardando_validacao"), validation("rejected", "sistemas", "reprovado")])
+  const preview = buildManualDocument(source, "preview")
+  assert.ok(published(preview).includes("TEXTO_EM_VALIDACAO"))
+  assert.ok(published(preview).includes("MANUTENCAO_EM_VALIDACAO"))
+  for (const hidden of ["TEXTO_RASCUNHO", "TEXTO_REPROVADO", "OUTRO_ESCOPO"]) assert.ok(!published(preview).includes(hidden))
+  const layout = await paginateManualDocument(preview)
+  const commands = layout.pages.flatMap(page => page.commands).filter(command => command.type === "text")
+  for (const marker of ["TEXTO_EM_VALIDACAO", "MANUTENCAO_EM_VALIDACAO"]) assert.ok(commands.some(command => command.type === "text" && command.text === marker && command.color === REVIEW_TEXT_COLOR && command.reviewStatus === "aguardando_validacao"))
+  for (const marker of ["TEXTO_APROVADO", "MANUTENCAO_APROVADA"]) assert.ok(commands.some(command => command.type === "text" && command.text === marker && command.color === preview.identity.text && !command.reviewStatus))
+  await assert.rejects(renderManualPdf(preview, layout), /só pode aparecer no preview/)
+  const publication = buildManualDocument(source)
+  assert.ok(!published(publication).includes("EM_VALIDACAO"))
+  const approved = buildManualDocument({ ...source, validations: source.validations.map(row => ({ ...row, status: row.status === "aguardando_validacao" ? "aprovado" : row.status })) }, "preview")
+  const approvedLayout = await paginateManualDocument(approved)
+  assert.ok(!approvedLayout.pages.some(page => page.commands.some(command => command.type === "text" && command.reviewStatus)))
+  assert.ok(approvedLayout.pages.flatMap(page => page.commands).some(command => command.type === "text" && command.text === "TEXTO_EM_VALIDACAO" && command.color === approved.identity.text))
+  assert.equal(assessManualReadiness(data, "proprietario", 0, source.validations).ok, false)
+})
+
+test("review status covers editorial, warranty, contacts, commissioning and finishing tables with exact scope", () => {
+  const source = input({ checklist: [], manuals: { proprietario: { editorial: { sections: { finalidade: { html: "<p>FINALIDADE_EM_VALIDACAO</p>" } }, warranties: [{ sistema: "GARANTIA_EM_VALIDACAO", prazo: "Conforme contrato" }] } } }, authoring: { contacts: [{ id: "a", kind: "projetista", name: "PROJETISTA_EM_VALIDACAO", company: "Empresa", discipline: "Estrutural" }], comissionamento: { agua: { company: "AGUA_EM_VALIDACAO" } } } }, ["finalidade", "garantias-tabela", "projetistas", "responsaveis-tecnicos", "agua"].map(id => validation(id, "editorial", "aguardando_validacao")))
+  source.finishing = [{ id: "a", tower: "A", typology: "01", unitModel: "101", area: "70", revision: 1, status: "aguardando_validacao", data: { ambientes: [{ ambiente: "Sala", teto: "ACABAMENTO_EM_VALIDACAO" }] } }]
+  const preview = buildManualDocument(source, "preview")
+  for (const marker of ["FINALIDADE", "GARANTIA", "PROJETISTA", "AGUA", "ACABAMENTO"]) assert.ok(published(preview).includes(marker + "_EM_VALIDACAO"))
+  for (const id of ["finalidade", "garantias-tabela", "projetistas", "responsaveis-tecnicos", "agua", "acabamento-a"]) assert.ok(find(preview, id).blocks.every(block => block.reviewStatus === "aguardando_validacao"))
+  assert.ok(!published(buildManualDocument(source)).includes("_EM_VALIDACAO"))
+  assert.ok(!published(buildManualDocument({ ...source, manualType: "sindico" }, "preview")).includes("_EM_VALIDACAO"))
+})
+
+test("drawing text links back to its own source, maintenance has its editor and furniture has no editing targets", async () => {
+  const source = input({ checklist: [item("unit")], manuals: { proprietario: { sistemas: { "unit::unidade": "<p>DESCRICAO_ORIGEM</p>" }, manutencao: { "unit::unidade": [{ task: "ATIVIDADE_ORIGEM", frequency: "Anual", responsible: "Proprietário" }] } } } }, [validation("unit"), validation("unit", "manutencao")])
+  const layout = await paginateManualDocument(buildManualDocument(source, "preview"))
+  const commands = layout.pages.flatMap(page => page.commands).filter(command => command.type === "text")
+  const description = commands.find(command => command.type === "text" && command.text === "DESCRICAO_ORIGEM")!
+  assert.equal(description.sectionId, "sistema-unit")
+  assert.equal(new URL(description.editHref!, "https://test.invalid").searchParams.get("aba"), "sistemas")
+  const activity = commands.find(command => command.type === "text" && command.text === "ATIVIDADE_ORIGEM")!
+  assert.equal(new URL(activity.editHref!, "https://test.invalid").searchParams.get("aba"), "sistemas")
+  assert.equal(new URL(activity.editHref!, "https://test.invalid").searchParams.get("conteudo"), "manutencao")
+  assert.equal(new URL(activity.editHref!, "https://test.invalid").searchParams.get("item"), "unit::unidade")
+  assert.ok(commands.filter(command => command.type === "text" && /^\d+ \/ \d+$/.test(command.text)).every(command => !command.sectionId && !command.editHref))
 })

@@ -1,7 +1,7 @@
 import { clip, endPath, PDFArray, PDFDocument, PDFHexString, PDFName, PDFNumber, type PDFPage, type PDFRef, popGraphicsState, pushGraphicsState, rectangle, rgb } from "pdf-lib"
 import { embedManualFonts } from "./fonts"
 import { paginateManualDocument } from "./paginate"
-import type { ManualDocument, ManualSection, PaginatedManual } from "./types"
+import { flattenSections, type ManualDocument, type ManualSection, type PaginatedManual } from "./types"
 
 function color(value: string) {
   const hex = /^#[\da-f]{6}$/i.test(value) ? value.slice(1) : "17202A"
@@ -39,6 +39,7 @@ function addBookmarks(pdf: PDFDocument, pages: PDFPage[], document: ManualDocume
 
 /** Exports precisely the same page commands shown by the SVG preview. No HTML or strings are rebuilt here. */
 export async function renderManualPdf(document: ManualDocument, suppliedLayout?: PaginatedManual): Promise<Uint8Array> {
+  if (flattenSections(document.sections).some(section => section.blocks.some(block => block.reviewStatus === "aguardando_validacao")) || suppliedLayout?.pages.some(page => page.commands.some(command => command.type === "text" && command.reviewStatus))) throw new Error("Conteúdo em validação só pode aparecer no preview. Aprove antes de emitir o PDF.")
   const layout = suppliedLayout ?? await paginateManualDocument(document)
   const pdf = await PDFDocument.create()
   pdf.setTitle(`${document.metadata.title} · ${document.metadata.developmentName}`)

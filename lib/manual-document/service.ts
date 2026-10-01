@@ -68,11 +68,12 @@ async function identityImage(url: string | null | undefined, context: AccessCont
   return (await normalizeManualImage(bytes, contentType)).dataUri
 }
 
-export async function composeManualPreview(context: AccessContext, manualType: ManualType, fresh = false) {
+export async function composeManualPreview(context: AccessContext, manualType: ManualType, fresh = false, purpose: "publication" | "preview" = "publication") {
   const { source, fingerprint } = await loadManualSource(context, manualType)
-  const found = cache.get(fingerprint)
+  const cacheKey = `${fingerprint}:${purpose}`
+  const found = cache.get(cacheKey)
   if (!fresh && found && found.expires > Date.now()) return found.result
-  const document = buildManualDocument(source)
+  const document = buildManualDocument(source, purpose)
   document.metadata.fingerprint = fingerprint
   const warnings: string[] = []
   const image = async (url: string | null | undefined) => {
@@ -97,13 +98,13 @@ export async function composeManualPreview(context: AccessContext, manualType: M
   readiness.ok = readiness.blocking.length === 0
   const result: ManualPreview = { document, layout, readiness, updatedAt: new Date().toISOString(), fingerprint }
   const bytes = Buffer.byteLength(JSON.stringify(result))
-  if (found) { cacheBytes -= found.bytes; cache.delete(fingerprint) }
+  if (found) { cacheBytes -= found.bytes; cache.delete(cacheKey) }
   while (cache.size && (cache.size >= 8 || cacheBytes + bytes > MAX_CACHE_BYTES)) {
     const key = cache.keys().next().value!
     cacheBytes -= cache.get(key)!.bytes
     cache.delete(key)
   }
-  if (bytes <= MAX_CACHE_BYTES) { cache.set(fingerprint, { result, bytes, expires: Date.now() + 30_000 }); cacheBytes += bytes }
+  if (bytes <= MAX_CACHE_BYTES) { cache.set(cacheKey, { result, bytes, expires: Date.now() + 30_000 }); cacheBytes += bytes }
   return result
 }
 

@@ -52,7 +52,6 @@ export const DocumentNavigation = memo(function DocumentNavigation({ sections, l
     <div className="min-h-0 flex-1 overflow-y-auto p-2">
       {matches ? <div aria-live="polite"><p className="px-2 py-2 text-xs text-muted-foreground">{matches.length} resultado{matches.length === 1 ? "" : "s"}</p><ul>{matches.map(({ section, matchingPage }) => <li key={section.id}><NavigationItem section={section} page={matchingPage ?? layout.destinations[section.id]?.page} targetPage={matchingPage} active={activeId === section.id} onNavigate={onNavigate} /></li>)}</ul></div> : <SectionTree sections={sections} layout={layout} activeId={activeId} expanded={expanded} onExpand={onExpand} onNavigate={onNavigate} />}
     </div>
-    <div className="border-t border-border p-3 text-[11px] leading-relaxed text-muted-foreground">Os estados indicam a revisão do conteúdo. Apenas conteúdo aprovado aparece nas páginas.</div>
   </nav>
 })
 

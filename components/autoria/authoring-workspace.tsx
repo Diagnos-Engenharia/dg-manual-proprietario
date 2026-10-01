@@ -12,15 +12,17 @@ import { SistemasConstrutivos } from "@/components/autoria/sistemas-construtivos
 import { Comissionamento } from "@/components/autoria/comissionamento"
 import { TabelaAcabamentos } from "@/components/autoria/tabela-acabamentos"
 import { DevelopmentHistory } from "@/components/autoria/development-history"
+import { TextosManual } from "@/components/autoria/textos-manual"
 import { Badge } from "@/components/ui/badge"
 import { PersistenceStatus } from "@/hooks/use-persistence-status"
 import { saveDevelopmentModulePath } from "@/app/actions/developments"
 import { cn } from "@/lib/utils"
 import type { ManualContent } from "@/lib/manual-content"
 
-type SubTabId="checklist"|"sistemas"|"comissionamento"|"acabamentos"|"contatos"|"historico"
+type SubTabId="checklist"|"textos"|"sistemas"|"comissionamento"|"acabamentos"|"contatos"|"historico"
 const subTabs=[
   {id:"checklist",label:"Checklist Inicial",icon:ListChecks},
+  {id:"textos",label:"Textos do manual",icon:FileText},
   {id:"sistemas",label:"Sistemas Construtivos",icon:Boxes},
   {id:"comissionamento",label:"Comissionamento",icon:Droplets},
   {id:"acabamentos",label:"Tabela de Acabamentos",icon:FileText},
@@ -44,7 +46,7 @@ export function AuthoringWorkspace({role,developmentId}:{role:"admin"|"editor"|"
   const progress=useMemo(()=>checklistProgress(checklist),[checklist])
   const manuals=(development?.manuals??{}) as Record<string,ManualContent>
 
-  useEffect(()=>{if(requested)setActiveTab(requested)},[requested])
+  useEffect(()=>{setActiveTab(requested??"checklist")},[requested])
   function selectTab(tab:SubTabId){
     setActiveTab(tab)
     const params=new URLSearchParams(searchParams.toString())
@@ -76,8 +78,9 @@ export function AuthoringWorkspace({role,developmentId}:{role:"admin"|"editor"|"
       {subTabs.map(tab=>{const Icon=tab.icon;return <button key={tab.id} onClick={()=>selectTab(tab.id)} className={cn("flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium",activeTab===tab.id?"border-primary text-foreground":"border-transparent text-muted-foreground hover:text-foreground")}><Icon className="h-4 w-4"/>{tab.label}{tab.id==="sistemas"&&<Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">{linked.length}</Badge>}</button>})}
     </div>
     <div className="flex min-w-0 flex-col gap-4">
-      {!canEdit&&activeTab!=="historico"&&activeTab!=="sistemas"&&<p className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">Somente leitura.</p>}
+      {!canEdit&&activeTab!=="historico"&&activeTab!=="sistemas"&&activeTab!=="textos"&&<p className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">Somente leitura.</p>}
       {activeTab==="checklist"&&<><ChecklistInicial items={checklist} onChangeStatus={setStatus} onChangeScopes={setScopes} disabled={!canEdit}/><PersistenceStatus state={checklistError?"error":checklistSaving?"saving":"clean"} savedAt={null} error={checklistError} onRetry={()=>persistChecklist(checklist)}/></>}
+      {activeTab==="textos"&&<TextosManual key={developmentId} developmentId={developmentId}/>}
       {activeTab==="sistemas"&&<SistemasConstrutivos items={linked} developmentId={developmentId} role={role} initialContents={{unidade:manuals.proprietario?.sistemas??{},comum:manuals.sindico?.sistemas??{}}} initialMaintenance={{unidade:manuals.proprietario?.manutencao??{},comum:manuals.sindico?.manutencao??{}}}/>}
       {activeTab==="comissionamento"&&<Comissionamento developmentId={developmentId} disabled={!canEdit}/>} 
       {activeTab==="acabamentos"&&<TabelaAcabamentos developmentId={developmentId} disabled={!canEdit} role={role}/>}

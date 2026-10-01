@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect,useMemo,useState } from "react"
+import { useEffect,useMemo,useRef,useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { useDevelopmentStore } from "@/lib/store"
 import { saveDevelopmentModulePath } from "@/app/actions/developments"
@@ -62,7 +62,11 @@ export function SistemasConstrutivos({
   initialContents:ScopedStore<string>
   initialMaintenance:ScopedStore<MaintenanceItem[]>
 }){
-  const requestedItem=useSearchParams().get("item")
+  const params=useSearchParams()
+  const requestedItem=params.get("item")
+  const requestedContent=params.get("conteudo")
+  const requestedScope=params.get("manual")==="sindico"?"comum":params.get("manual")==="proprietario"?"unidade":null
+  const maintenanceSection=useRef<HTMLElement>(null)
   const entries=useMemo(()=>scopeOrder.flatMap(scope=>items.filter(item=>checklistItemMatchesScope(item,scope)).map(item=>({item,scope,key:checklistItemContextKey(item,scope)}))),[items])
   const [openScope,setOpenScope]=useState<Record<ChecklistScope,boolean>>({unidade:true,comum:true})
   const [activeKey,setActiveKey]=useState(entries[0]?.key??"")
@@ -74,7 +78,8 @@ export function SistemasConstrutivos({
   const canEdit=role==="admin"||role==="editor"
 
   useEffect(()=>{if(entries.length&&!entries.some(entry=>entry.key===activeKey))setActiveKey(entries[0].key)},[entries,activeKey])
-  useEffect(()=>{const requested=entries.find(entry=>entry.key===requestedItem);if(requested){setActiveKey(requested.key);setOpenScope(current=>({...current,[requested.scope]:true}))}},[entries,requestedItem])
+  useEffect(()=>{const requested=entries.find(entry=>entry.key===requestedItem)??(requestedScope?entries.find(entry=>entry.scope===requestedScope):undefined);if(requested){setActiveKey(requested.key);setOpenScope(current=>({...current,[requested.scope]:true}))}},[entries,requestedItem,requestedScope])
+  useEffect(()=>{if(requestedContent!=="manutencao")return;const frame=requestAnimationFrame(()=>maintenanceSection.current?.scrollIntoView({block:"start"}));return()=>cancelAnimationFrame(frame)},[requestedContent,activeKey,entries.length])
   const loadValidations=async()=>{try{setValidations(await listSystemValidationStates(developmentId));setValidationError(null)}catch(e){setValidationError(e instanceof Error?e.message:"Falha ao carregar validações")}}
   useEffect(()=>{void loadValidations()},[developmentId])
 
@@ -165,7 +170,7 @@ export function SistemasConstrutivos({
         </div>
       </section>
 
-      <section className="space-y-3 border-t border-border pt-5">
+      <section ref={maintenanceSection} className="scroll-mt-6 space-y-3 border-t border-border pt-5">
         <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="flex items-center gap-2 text-sm font-semibold"><Wrench className="h-4 w-4 text-primary"/>Manutenção preventiva</h3><ValidationStatusBadge status={maintenanceStatus}/></div>
         <div className={cn("transition-opacity",maintenanceLocked&&"opacity-60")}><MaintenanceTable items={maintenance[scope][key]??(item.maintenance??[]).map(row=>({...row,responsible:scope==="unidade"?"Proprietário" as const:"Síndico" as const}))} disabled={!canEdit||maintenanceLocked} defaultResponsible={scope==="unidade"?"Proprietário":"Síndico"} onChange={updateMaintenance}/></div>
         <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-h-5"><PersistenceStatus state={maintenancePersistence.state} savedAt={maintenancePersistence.savedAt} error={maintenancePersistence.error} onRetry={()=>void maintenancePersistence.persist()}/></div><ValidationActions key={key+"-manutencao"} developmentId={developmentId} contextKey={key} section="manutencao" label={item.item} role={role} status={maintenanceStatus} comment={comment("manutencao")} beforeSend={maintenancePersistence.flush} onStatusChange={(nextStatus,nextComment)=>setValidationState("manutencao",nextStatus,nextComment)} onDone={loadValidations}/></div>
