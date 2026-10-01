@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache"
 import { db } from "@/lib/db"
 import { platformIntegrations } from "@/lib/db/schema"
 import { recordAudit,requirePlatformManager } from "@/lib/organization"
+import { consumeRateLimit } from "@/lib/security/rate-limit"
 
 export type PlatformAiProvider="openai"
 export type PlatformActionResult={ok:true;message:string}|{ok:false;message:string}
@@ -56,6 +57,7 @@ export async function getPlatformAiIntegration(){
 export async function savePlatformAiIntegration(input:{apiKey:string;model:string}):Promise<PlatformActionResult>{
   try{
     const context=await requirePlatformManager()
+    await consumeRateLimit("platform-ai-save:"+context.user.id,{max:20,windowSeconds:3600})
     const apiKey=input.apiKey.trim()
     const model=input.model.trim()
     if(!model)throw new Error("Informe o modelo da OpenAI que será utilizado")
@@ -92,6 +94,7 @@ export async function savePlatformAiIntegration(input:{apiKey:string;model:strin
 export async function testPlatformAiIntegration():Promise<PlatformActionResult>{
   try{
     const context=await requirePlatformManager()
+    await consumeRateLimit("platform-ai-test:"+context.user.id,{max:30,windowSeconds:3600})
     const row=(await db.select().from(platformIntegrations).limit(1))[0]
     if(!row)throw new Error("Configure a OpenAI antes de testar")
     if(row.provider!=="openai")throw new Error("A integração atual não é OpenAI. Salve novamente a configuração.")
@@ -121,6 +124,7 @@ export async function testPlatformAiIntegration():Promise<PlatformActionResult>{
 export async function removePlatformAiIntegration():Promise<PlatformActionResult>{
   try{
     const context=await requirePlatformManager()
+    await consumeRateLimit("platform-ai-remove:"+context.user.id,{max:10,windowSeconds:3600})
     const rows=await db.select({id:platformIntegrations.id,provider:platformIntegrations.provider,config:platformIntegrations.config}).from(platformIntegrations)
     await db.delete(platformIntegrations)
     for(const row of rows)await recordAudit({organizationId:"platform",actorId:context.user.id,action:"platform_ai.removed",entityType:"platform_integration",entityId:row.id,metadata:{provider:row.provider,model:(row.config as {model?:string})?.model??null}})
