@@ -1,8 +1,9 @@
+import { createHash } from "node:crypto"
 import { betterAuth } from "better-auth"
 import { APIError, createAuthMiddleware } from "better-auth/api"
-import { eq } from "drizzle-orm"
+import { and, eq, gt } from "drizzle-orm"
 import { db, pool } from "@/lib/db"
-import { user as userTable } from "@/lib/db/schema"
+import { organizationInvitations, user as userTable } from "@/lib/db/schema"
 
 function toOrigin(value?: string) {
   if (!value) return null
@@ -49,12 +50,27 @@ export const auth = betterAuth({
   },
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
-      if (ctx.path !== "/sign-in/email") return
-      const email=String(ctx.body?.email??"").trim().toLowerCase()
-      if(!email)return
-      const profile=(await db.select({accessStatus:userTable.accessStatus}).from(userTable).where(eq(userTable.email,email)).limit(1))[0]
-      if(profile?.accessStatus==="disabled"){
-        throw new APIError("FORBIDDEN",{message:"Esta conta está inativa. Solicite a reativação ao Gerenciador."})
+      if(ctx.path==="/sign-up/email"){
+        const email=String(ctx.body?.email??"").trim().toLowerCase()
+        const token=ctx.headers?.get("x-dg-invite")?.trim()??""
+        if(!email||!token)throw new APIError("FORBIDDEN",{message:"O cadastro no DG Manual exige um convite válido."})
+        const tokenHash=createHash("sha256").update(token).digest("hex")
+        const invite=(await db.select({id:organizationInvitations.id}).from(organizationInvitations).where(and(
+          eq(organizationInvitations.tokenHash,tokenHash),
+          eq(organizationInvitations.email,email),
+          eq(organizationInvitations.status,"pending"),
+          gt(organizationInvitations.expiresAt,new Date()),
+        )).limit(1))[0]
+        if(!invite)throw new APIError("FORBIDDEN",{message:"Convite inválido, expirado ou destinado a outro e-mail."})
+        return
+      }
+      if(ctx.path==="/sign-in/email"){
+        const email=String(ctx.body?.email??"").trim().toLowerCase()
+        if(!email)return
+        const profile=(await db.select({accessStatus:userTable.accessStatus}).from(userTable).where(eq(userTable.email,email)).limit(1))[0]
+        if(profile?.accessStatus==="disabled"){
+          throw new APIError("FORBIDDEN",{message:"Esta conta está inativa. Solicite a reativação ao Gerenciador."})
+        }
       }
     }),
   },
