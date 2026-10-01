@@ -231,6 +231,7 @@ export async function managerSetUserAccess(input:{userId:string;status:"active"|
     }
 
     await db.update(user).set({accessStatus:input.status,updatedAt:new Date()}).where(eq(user.id,input.userId))
+    await db.update(members).set({status:input.status==="active"?"active":"suspended"}).where(eq(members.userId,input.userId))
     if(input.status==="disabled")await db.delete(session).where(eq(session.userId,input.userId))
     for(const membership of userMemberships){
       await recordAudit({
