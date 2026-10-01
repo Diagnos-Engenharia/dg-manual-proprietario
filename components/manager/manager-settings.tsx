@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { CheckCircle2,Eye,EyeOff,KeyRound,Save,ShieldCheck,Trash2 } from "lucide-react"
 import { authClient } from "@/lib/auth-client"
 import { removePlatformAiIntegration,savePlatformAiIntegration,testPlatformAiIntegration } from "@/app/actions/platform-integrations"
@@ -14,6 +15,7 @@ type AiIntegration={provider:string;status:string;testedAt:string|null;updatedAt
 type FeedbackHandler=(tone:"success"|"error"|"info",message:string)=>void
 
 export function ManagerSettings({managerName,managerEmail,aiIntegration,onFeedback}:{managerName:string;managerEmail:string;aiIntegration:AiIntegration;onFeedback:FeedbackHandler}){
+  const router=useRouter()
   const [busy,setBusy]=useState(false)
   const [model,setModel]=useState(aiIntegration?.config.model??"")
   const [apiKey,setApiKey]=useState("")
@@ -42,7 +44,7 @@ export function ManagerSettings({managerName,managerEmail,aiIntegration,onFeedba
     try{
       const result=await savePlatformAiIntegration({apiKey,model})
       onFeedback(result.ok?"success":"error",result.message)
-      if(result.ok)setApiKey("")
+      if(result.ok){setApiKey("");router.refresh()}
     }catch(error){onFeedback("error",error instanceof Error?error.message:"Não foi possível salvar a integração.")}
     finally{setBusy(false)}
   }
@@ -52,6 +54,7 @@ export function ManagerSettings({managerName,managerEmail,aiIntegration,onFeedba
     try{
       const result=await testPlatformAiIntegration()
       onFeedback(result.ok?"success":"error",result.message)
+      router.refresh()
     }catch(error){onFeedback("error",error instanceof Error?error.message:"Não foi possível testar a OpenAI.")}
     finally{setBusy(false)}
   }
@@ -62,7 +65,7 @@ export function ManagerSettings({managerName,managerEmail,aiIntegration,onFeedba
     try{
       const result=await removePlatformAiIntegration()
       onFeedback(result.ok?"success":"error",result.message)
-      if(result.ok){setApiKey("");setModel("")}
+      if(result.ok){setApiKey("");setModel("");router.refresh()}
     }catch(error){onFeedback("error",error instanceof Error?error.message:"Não foi possível remover a integração.")}
     finally{setBusy(false)}
   }
