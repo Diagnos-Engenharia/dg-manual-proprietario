@@ -37,23 +37,6 @@ export function assessManualReadiness(data: Record<string, unknown>, manual: "pr
   }
   if (!selected.length) pendingSystems.push("Indicar ao menos um sistema existente para este manual.")
   stages.push({ id: manual, name: manual==="proprietario"?"Manual do Proprietário":"Manual do Síndico", progress: selected.length ? Math.round(approvedSystemParts / (selected.length * 2) * 100) : 0, pending: pendingSystems })
-  if (manual === "proprietario") {
-    const pending: string[] = []
-    if (!finishingCount || !finishing.length) pending.push(finishingCount ? "Verificar a aprovação da Tabela de Acabamentos." : "Cadastrar a Tabela de Acabamentos.")
-    let approved = 0
-    const required: Record<string, string[]> = { ambientes: ["ambiente"], materiais: ["material", "aplicacao", "ambiente"], hidraulicas: ["ambiente", "loucaCuba"], esquadrias: ["ambiente"], eletricas: ["ambiente", "acabamentoEletrico"] }
-    for (const table of finishing) {
-      const label = [table.tower, table.typology].filter(Boolean).join(" / ") || "Tabela de Acabamentos"
-      if (table.status !== "aprovado") pending.push(`Acabamentos: ${label} — ${statusLabels[table.status] ?? "sem aprovação"}`)
-      const groups = Object.entries(asRecord(table.data)).filter(([, value]) => Array.isArray(value))
-      const count = groups.reduce((total, [, value]) => total + (value as unknown[]).length, 0)
-      const incomplete = groups.some(([group, values]) => (values as unknown[]).some(value => (required[group] ?? []).some(key => !hasValue(asRecord(value)[key]))))
-      if (!count) pending.push("Acabamentos: cadastrar registros em " + label)
-      else if (incomplete) pending.push("Acabamentos: completar os campos obrigatórios em " + label)
-      else if (table.status === "aprovado") approved++
-    }
-    stages.push({ id: "acabamentos", name: "Tabela de Acabamentos", progress: finishing.length ? Math.round(approved / finishing.length * 100) : 0, pending })
-  }
   const editorial = content?.editorial ?? {}
   const pendingEditorial: string[] = []
   const contexts = new Set<string>()

@@ -1,6 +1,8 @@
 import type { ManualType } from "@/lib/mock-data"
 import type { ManualIdentity } from "@/lib/manual-identity"
 
+export type DocumentType = ManualType | "acabamentos"
+
 export type ContentStatus = "sem_conteudo" | "rascunho" | "aguardando_validacao" | "aprovado" | "reprovado" | "nao_aplicavel"
 export type ManualBlock = { reviewStatus?: "aguardando_validacao"; editHref?: string } & (
   | { type: "heading"; text: string; level?: number }
@@ -28,7 +30,7 @@ export type ManualSection = {
 export type ManualAttachment = { id: string; name: string; pathname: string; contentType: string; sizeBytes: number; policy: "include" | "reference" | "exclude"; sectionId: string }
 export type ManualDocument = {
   schemaVersion: 1
-  metadata: { developmentId: string; developmentName: string; organizationName: string; organizationLogo?: string | null; manualType: ManualType; title: string; revision: number; date: string; generatedAt: string; fingerprint?: string; purpose?: "preview" | "publication" }
+  metadata: { developmentId: string; developmentName: string; organizationName: string; organizationLogo?: string | null; manualType: DocumentType; unitId?: string; unitLabel?: string; title: string; revision: number; date: string; generatedAt: string; fingerprint?: string; purpose?: "preview" | "publication" }
   identity: ManualIdentity
   sections: ManualSection[]
   attachments: ManualAttachment[]

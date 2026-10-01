@@ -14,11 +14,12 @@ import { ManualPage } from "./manual-page"
 import { ContentStatusIcon, contentStatusLabels, DocumentNavigation } from "./document-navigation"
 import { SectionInspector, type EditorialAction, type EditorialData, type ManualInteractionMode } from "./section-inspector"
 import { manualFileUrl, VersionHistory, versionStatusLabels, type ManualVersion } from "./version-history"
+import type { FinishingUnitSummary, UnitCatalog } from "@/lib/finishing-types"
 
-type ManualType = "proprietario" | "sindico"
+type DocumentType = "proprietario" | "sindico" | "acabamentos"
 type ViewMode = "continuous" | "single"
 type Compilation = { filename: string; pathname: string; revision: number; pages: number }
-const labels: Record<ManualType, string> = { proprietario: "Manual do Proprietário", sindico: "Manual do Síndico" }
+const labels: Record<DocumentType, string> = { proprietario: "Manual do Proprietário", sindico: "Manual do Síndico", acabamentos: "Tabelas de acabamento" }
 const pointToPixel = 96 / 72
 
 async function readJson<T>(response: Response): Promise<T> {
@@ -31,9 +32,13 @@ async function readJson<T>(response: Response): Promise<T> {
 export function PdfCompiler({ developmentId, role }: { developmentId?: string; role: "admin" | "editor" | "validator" }) {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const requestedManual = searchParams.get("manual") === "sindico" ? "sindico" : "proprietario"
+  const requestedManual = searchParams.get("manual") === "acabamentos" ? "acabamentos" : searchParams.get("manual") === "sindico" ? "sindico" : "proprietario"
+  const requestedUnit = searchParams.get("unidade")
   const requestedSection = searchParams.get("secao")
-  const [manual, setManual] = useState<ManualType>(requestedManual)
+  const [manual, setManual] = useState<DocumentType>(requestedManual)
+  const [unitId, setUnitId] = useState<string | null>(requestedUnit)
+  const [units, setUnits] = useState<FinishingUnitSummary[]>([])
+  const [unitsLoaded, setUnitsLoaded] = useState(false)
   const [preview, setPreview] = useState<ManualPreview | null>(null)
   const [editorial, setEditorial] = useState<EditorialData | null>(null)
   const [versions, setVersions] = useState<ManualVersion[]>([])
@@ -62,24 +67,38 @@ export function PdfCompiler({ developmentId, role }: { developmentId?: string; r
   const mutationScope = useRef<string | null>(null)
   const loadSequence = useRef(0)
   const operationSequence = useRef(0)
-  const scope = (developmentId ?? "") + ":" + manual
+  const scope = (developmentId ?? "") + ":" + manual + (manual === "acabamentos" ? ":" + (unitId ?? "") : "")
   const currentScope = useRef(scope)
   currentScope.current = scope
 
   const load = useCallback(async () => {
     if (!developmentId) return
-    const requestScope = developmentId + ":" + manual
+    const requestScope = developmentId + ":" + manual + (manual === "acabamentos" ? ":" + (unitId ?? "") : "")
     const sequence = ++loadSequence.current
     loadController.current?.abort()
     const controller = new AbortController()
     loadController.current = controller
     setLoading(true); setError(null)
-    const body = JSON.stringify({ developmentId, manualType: manual })
-    const query = "?developmentId=" + encodeURIComponent(developmentId) + "&manualType=" + manual
+    const body = JSON.stringify({ developmentId, manualType: manual, ...(manual === "acabamentos" ? { unitId } : {}) })
+    const query = "?" + new URLSearchParams({ developmentId, manualType: manual, ...(manual === "acabamentos" && unitId ? { unitId } : {}) })
+    const sourceRequest = manual === "acabamentos"
+      ? fetch("/api/finishing/units?" + new URLSearchParams({ developmentId }), { signal: controller.signal, cache: "no-store" }).then(response => readJson<UnitCatalog>(response))
+      : fetch("/api/manuals/editorial" + query, { signal: controller.signal }).then(response => readJson<EditorialData>(response))
+    if (manual === "acabamentos" && !unitId) {
+      try {
+        const catalog = await sourceRequest as UnitCatalog
+        if (!controller.signal.aborted && sequence === loadSequence.current && currentScope.current === requestScope) { setUnits(catalog.units); setUnitsLoaded(true) }
+      } catch (cause) {
+        if (!controller.signal.aborted && sequence === loadSequence.current && currentScope.current === requestScope) setError(cause instanceof Error ? cause.message : "Não foi possível carregar as unidades.")
+      } finally {
+        if (!controller.signal.aborted && sequence === loadSequence.current && currentScope.current === requestScope) setLoading(false)
+      }
+      return
+    }
     const results = await Promise.allSettled([
       fetch("/api/manuals/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: controller.signal }).then(response => readJson<ManualPreview>(response)),
       fetch("/api/manuals/versions" + query, { signal: controller.signal }).then(response => readJson<{ versions: ManualVersion[] }>(response)),
-      fetch("/api/manuals/editorial" + query, { signal: controller.signal }).then(response => readJson<EditorialData>(response)),
+      sourceRequest,
     ])
     if (controller.signal.aborted || sequence !== loadSequence.current || currentScope.current !== requestScope) return
     const [documentResult, versionsResult, editorialResult] = results
@@ -91,16 +110,24 @@ export function PdfCompiler({ developmentId, role }: { developmentId?: string; r
     } else failures.push(documentResult.reason instanceof Error ? documentResult.reason.message : "Não foi possível atualizar o preview.")
     if (versionsResult.status === "fulfilled") setVersions(versionsResult.value.versions ?? [])
     else failures.push("Não foi possível carregar o histórico de versões.")
-    if (editorialResult.status === "fulfilled") setEditorial(editorialResult.value)
-    else failures.push("Não foi possível carregar os textos para edição e revisão.")
+    if (editorialResult.status === "fulfilled") {
+      if (manual === "acabamentos") {
+        const catalog = editorialResult.value as UnitCatalog
+        setUnits(catalog.units); setUnitsLoaded(true)
+        setEditorial({ sections: {}, canEdit: catalog.canEdit, canValidate: catalog.canValidate })
+      } else setEditorial(editorialResult.value as EditorialData)
+    } else failures.push(manual === "acabamentos" ? "Não foi possível carregar as unidades." : "Não foi possível carregar os textos para edição e revisão.")
     setError(failures.length ? failures.join(" ") : null)
     setLoading(false)
-  }, [developmentId, manual])
+  }, [developmentId, manual, unitId])
 
   useEffect(() => { setManual(requestedManual) }, [requestedManual])
+  useEffect(() => { setUnitId(requestedUnit) }, [requestedUnit])
+  useEffect(() => { setUnits([]); setUnitsLoaded(false) }, [developmentId])
   useEffect(() => {
     setPreview(null); setEditorial(null); setVersions([]); setSuccess(null); setError(null); setActiveId("capa"); setPage(1); setExpanded(new Set()); setCompiling(false); setActionBusy(false); setInteractionMode("view"); mutationScope.current = null
     operationController.current?.abort(); operationSequence.current++; zoomAnchor.current = null
+    setHistoryOpen(false); setInspectorOpen(false); setPendingOpen(false); setOptionalOpen(false)
     void load()
     return () => { loadController.current?.abort(); operationController.current?.abort() }
   }, [load])
@@ -265,7 +292,7 @@ export function PdfCompiler({ developmentId, role }: { developmentId?: string; r
     mutationScope.current = actionScope
     setCompiling(true); setError(null); setSuccess(null)
     try {
-      const response = await fetch("/api/manuals/compile", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ developmentId, manualType: manual, previewFingerprint: preview.fingerprint }), signal: controller.signal })
+      const response = await fetch("/api/manuals/compile", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ developmentId, manualType: manual, ...(manual === "acabamentos" ? { unitId } : {}), previewFingerprint: preview.fingerprint }), signal: controller.signal })
       const result = await readJson<Compilation>(response)
       if (currentScope.current !== actionScope || sequence !== operationSequence.current || controller.signal.aborted) return
       setSuccess(result); await load()
@@ -280,6 +307,7 @@ export function PdfCompiler({ developmentId, role }: { developmentId?: string; r
   const revision = preview?.document.metadata.revision ?? versions[0]?.revision ?? 0
   const documentState = ready ? "Pronto para emissão" : "Em elaboração"
   const inspectorProps = {
+    documentType: manual,
     section: activeSection, page: preview?.layout.destinations[activeId]?.page,
     role, editorial, attachments: preview?.document.attachments ?? [], onAction: editorialAction,
     interactionMode, onModeChange: changeInteractionMode, onCompile: () => void compile(),
@@ -288,19 +316,29 @@ export function PdfCompiler({ developmentId, role }: { developmentId?: string; r
     compiling, pendingCount,
   }
   function stageHref(id: string) {
+    if (manual === "acabamentos") return "/empreendimentos/" + encodeURIComponent(developmentId ?? "") + "?" + new URLSearchParams({ modulo: "elaboracao", aba: "acabamentos", ...(unitId ? { unidade: unitId } : {}) })
     const base = "/empreendimentos/" + encodeURIComponent(developmentId ?? "") + "?manual=" + manual
     if (id === "ficha") return base + "&modulo=informacoes"
     if (id === "cronograma" || id.startsWith("custom-")) return base + "&modulo=cronograma"
     if (id === "editorial") return base + "&modulo=elaboracao&aba=textos"
     return base + "&modulo=elaboracao&aba=" + (id === "acabamentos" ? "acabamentos" : id === "checklist" ? "checklist" : "textos&secao=sistemas" + (id === "manutencao" ? "&conteudo=manutencao" : ""))
   }
+  function selectTarget(next: DocumentType, nextUnit: string | null = null) {
+    setManual(next); setUnitId(nextUnit)
+    const params = new URLSearchParams(searchParams.toString())
+    params.set("modulo", "emissao"); params.set("manual", next)
+    for (const key of ["secao", "item", "conteudo", "grupo", "ambiente", "unidade"]) params.delete(key)
+    if (next === "acabamentos" && nextUnit) params.set("unidade", nextUnit)
+    router.replace("/empreendimentos/" + encodeURIComponent(developmentId ?? "") + "?" + params, { scroll: false })
+  }
+  const selectedUnit = manual === "acabamentos" ? units.find(unit => unit.id === unitId) : undefined
 
   if (!developmentId) return <div className="rounded-lg border border-border p-8 text-center text-sm text-muted-foreground">Selecione um empreendimento para compor o manual.</div>
   return <div className="flex min-w-0 flex-col gap-3">
     <div className="rounded-xl border border-border bg-card shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-3">
-        <div className="flex flex-wrap items-center gap-3"><label className="sr-only" htmlFor="manual-type">Tipo de manual</label><select id="manual-type" value={manual} onChange={event => setManual(event.target.value as ManualType)} className="h-9 max-w-full rounded-md border border-input bg-background px-2 text-sm font-semibold">{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><span className="text-xs tabular-nums text-muted-foreground">Rev. {String(revision).padStart(2, "0")} · {pageCount} páginas</span><Badge variant="outline" className={cn(ready && "border-success/30 text-success")}>{overall}% concluído</Badge></div>
-        <div className="flex flex-wrap items-center gap-1.5"><Button variant="ghost" size="sm" onClick={() => void load()} disabled={loading || compiling || actionBusy}><RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />Atualizar preview</Button><Button variant="ghost" size="sm" onClick={() => setOptionalOpen(true)}><ListFilter className="h-3.5 w-3.5" />Módulos</Button><Button variant="outline" size="sm" onClick={() => setHistoryOpen(true)}><History className="h-3.5 w-3.5" />Histórico</Button><Button variant="outline" size="sm" onClick={() => setPendingOpen(true)}><AlertTriangle className="h-3.5 w-3.5" />Pendências{pendingCount > 0 && <span className="rounded bg-muted px-1.5 text-[10px]">{pendingCount}</span>}</Button></div>
+        <div className="flex min-w-0 flex-wrap items-center gap-3"><label className="sr-only" htmlFor="manual-type">Tipo de manual</label><select id="manual-type" value={manual} onChange={event => selectTarget(event.target.value as DocumentType)} className="h-9 max-w-full rounded-md border border-input bg-background px-2 text-sm font-semibold">{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>{manual === "acabamentos" && <><label className="sr-only" htmlFor="finishing-unit">Unidade da tabela</label><select id="finishing-unit" value={unitId ?? ""} disabled={loading} onChange={event => selectTarget("acabamentos", event.target.value || null)} className="h-9 max-w-full rounded-md border border-input bg-background px-2 text-sm"><option value="">Selecione uma unidade</option>{unitId && !units.some(unit => unit.id === unitId) && <option value={unitId}>Unidade indisponível</option>}{units.map(unit => <option key={unit.id} value={unit.id}>{[unit.tower, "Unidade " + unit.number, unit.typology].filter(Boolean).join(" · ")}</option>)}</select></>}{preview && <><span className="text-xs tabular-nums text-muted-foreground">Rev. {String(revision).padStart(2, "0")} · {pageCount} páginas</span><Badge variant="outline" className={cn(ready && "border-success/30 text-success")}>{overall}% concluído</Badge></>}</div>
+        <div className="flex flex-wrap items-center gap-1.5"><Button variant="ghost" size="sm" onClick={() => void load()} disabled={loading || compiling || actionBusy}><RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />Atualizar preview</Button>{manual !== "acabamentos" && <Button variant="ghost" size="sm" onClick={() => setOptionalOpen(true)}><ListFilter className="h-3.5 w-3.5" />Módulos</Button>}<Button variant="outline" size="sm" onClick={() => setHistoryOpen(true)} disabled={manual === "acabamentos" && !unitId}><History className="h-3.5 w-3.5" />Histórico</Button><Button variant="outline" size="sm" onClick={() => setPendingOpen(true)} disabled={!preview}><AlertTriangle className="h-3.5 w-3.5" />Pendências{pendingCount > 0 && <span className="rounded bg-muted px-1.5 text-[10px]">{pendingCount}</span>}</Button></div>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-3 py-2">
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground">{ready ? <CheckCircle2 className="h-3.5 w-3.5 text-success" /> : <FileText className="h-3.5 w-3.5" />}<span>{documentState}</span>{versions[0] && <span className="hidden sm:inline">· Última emissão: {versionStatusLabels[versions[0].status] ?? versions[0].status}</span>}<span className="hidden md:inline">· {preview ? elapsed < 60 ? "Preview atualizado há " + elapsed + " s" : "Preview atualizado há " + Math.floor(elapsed / 60) + " min" : "Preparando preview"}</span></div>
@@ -312,22 +350,22 @@ export function PdfCompiler({ developmentId, role }: { developmentId?: string; r
     <div className="grid h-[calc(100dvh-240px)] min-h-[560px] min-w-0 grid-cols-[minmax(160px,220px)_minmax(0,1fr)] overflow-hidden rounded-xl border border-border xl:grid-cols-[240px_minmax(0,1fr)_250px]">
       {preview ? <DocumentNavigation sections={preview.document.sections} layout={preview.layout} activeId={activeId} expanded={expanded} onExpand={toggleExpanded} onNavigate={interactWithTopic} /> : <div className="border-r border-border bg-card p-4 text-sm text-muted-foreground">Sumário{loading && <p className="mt-4 text-xs">Carregando estrutura…</p>}</div>}
       <div className="flex min-h-0 min-w-0 flex-col bg-muted/50">
-        <div ref={viewportRef} className="relative min-h-0 flex-1 overflow-auto [overflow-anchor:none]" aria-label="Pré-visualização do manual em páginas A4" aria-busy={loading}>
-          {preview ? <div className="flex min-h-full min-w-max flex-col items-center gap-6 p-6">{visiblePages.map(item => <PageSheet key={item.number} page={item} preview={preview} zoom={zoom} pageRefs={pageRefs} onNavigate={navigate} editMode={interactionMode === "edit"} onEditSection={editSection} />)}</div> : <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center"><FileText className="h-10 w-10 text-muted-foreground/50" />{loading ? <><Loader2 className="h-5 w-5 animate-spin text-primary" /><p className="text-sm text-muted-foreground">Montando o manual…</p></> : <><p className="text-sm text-muted-foreground">O preview estará disponível com a estrutura do manual, mesmo antes de sua conclusão.</p><Button variant="outline" size="sm" onClick={() => void load()}>Carregar preview</Button></>}</div>}
+        <div ref={viewportRef} className="relative min-h-0 flex-1 overflow-auto [overflow-anchor:none]" aria-label={manual === "acabamentos" ? "Pré-visualização da tabela de acabamentos em páginas A4" : "Pré-visualização do manual em páginas A4"} aria-busy={loading}>
+          {preview ? <div className="flex min-h-full min-w-max flex-col items-center gap-6 p-6">{visiblePages.map(item => <PageSheet key={item.number} page={item} preview={preview} zoom={zoom} pageRefs={pageRefs} onNavigate={navigate} editMode={interactionMode === "edit"} onEditSection={editSection} />)}</div> : <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center"><FileText className="h-10 w-10 text-muted-foreground/50" />{loading ? <><Loader2 className="h-5 w-5 animate-spin text-primary" /><p className="text-sm text-muted-foreground">Preparando documento…</p></> : manual === "acabamentos" && !unitId ? <><p className="text-sm text-muted-foreground">{unitsLoaded && !units.length ? "Cadastre uma unidade e prepare sua tabela de acabamentos para visualizar e emitir o PDF." : "Selecione a unidade para conferir sua tabela de acabamentos."}</p><a href={stageHref("unidade")} className="text-sm font-medium text-primary hover:underline">{unitsLoaded && !units.length ? "Cadastrar unidade" : "Elaborar tabelas de acabamento"}</a></> : <><p className="text-sm text-muted-foreground">{manual === "acabamentos" ? "Não foi possível preparar a tabela desta unidade. Confira a seleção e tente novamente." : "O preview estará disponível com a estrutura do manual, mesmo antes de sua conclusão."}</p><Button variant="outline" size="sm" onClick={() => void load()}>Carregar preview</Button></>}</div>}
         </div>
         <div className="flex shrink-0 items-center justify-center gap-3 border-t border-border bg-card px-3 py-2"><Button variant="ghost" size="icon-sm" aria-label="Página anterior" disabled={page <= 1 || !preview} onClick={() => movePage(page - 1)}><ChevronLeft className="h-4 w-4" /></Button><label className="flex items-center gap-2 text-xs text-muted-foreground">Página<input aria-label="Ir para página" type="number" min={1} max={pageCount || 1} value={page} onChange={event => { const next = Number(event.target.value); if (Number.isFinite(next) && next >= 1) movePage(next) }} className="h-7 w-12 rounded-md border border-input bg-background px-1 text-center text-foreground" />de {pageCount}</label><Button variant="ghost" size="icon-sm" aria-label="Próxima página" disabled={page >= pageCount || !preview} onClick={() => movePage(page + 1)}><ChevronRight className="h-4 w-4" /></Button></div>
       </div>
       <aside className="hidden min-h-0 overflow-y-auto border-l border-border bg-card xl:block" aria-label="Informações da seção"><SectionInspector key={scope} {...inspectorProps} /></aside>
     </div>
     <VersionHistory key={scope + ":versions"} open={historyOpen} onOpenChange={setHistoryOpen} versions={versions} role={role} onTransition={transition} />
-    <Dialog open={pendingOpen} onOpenChange={setPendingOpen}><DialogContent className="sm:max-w-2xl"><DialogHeader><DialogTitle>Pendências do documento</DialogTitle><DialogDescription>{labels[manual]} · {overall}% concluído. Corrija o conteúdo na elaboração e atualize o preview.</DialogDescription></DialogHeader><div className="max-h-[65vh] space-y-4 overflow-y-auto">
+    <Dialog open={pendingOpen} onOpenChange={setPendingOpen}><DialogContent className="sm:max-w-2xl"><DialogHeader><DialogTitle>Pendências do documento</DialogTitle><DialogDescription>{labels[manual]}{selectedUnit ? " · " + [selectedUnit.tower, "Unidade " + selectedUnit.number].filter(Boolean).join(" / ") : ""} · {overall}% concluído. Corrija o conteúdo na elaboração e atualize o preview.</DialogDescription></DialogHeader><div className="max-h-[65vh] space-y-4 overflow-y-auto">
       {preview?.readiness.stages.map(stage => <div key={stage.id} className="rounded-lg border border-border p-3"><div className="flex items-center justify-between gap-2"><h3 className="text-sm font-medium">{stage.name}</h3><span className="text-xs text-muted-foreground">{stage.progress}%</span></div>{stage.pending.map((item, index) => <p key={index} className="mt-1 text-xs text-destructive">{item}</p>)}{stage.pending.length > 0 && <a href={stageHref(stage.id)} className="mt-2 inline-block text-xs text-primary underline">Corrigir esta etapa</a>}</div>)}
       {pendingSections.length > 0 && <div><h3 className="mb-2 text-sm font-semibold">Conteúdo por seção</h3><div className="space-y-1">{pendingSections.map(section => <div key={section.id} className="flex items-center gap-2 rounded-md border border-border px-3 py-2"><ContentStatusIcon status={section.validationStatus} /><button type="button" onClick={() => { navigate(section.id); setPendingOpen(false) }} className="min-w-0 flex-1 text-left text-xs hover:text-primary">{section.number ? section.number + " " : ""}{section.title}<span className="mt-0.5 block text-[10px] text-muted-foreground">{contentStatusLabels[section.validationStatus]}</span></button>{section.editHref && <a href={section.editHref} className="shrink-0 text-xs text-primary underline">Corrigir</a>}</div>)}</div></div>}
       {preview?.readiness.blocking.length ? <div className="space-y-1 rounded-md bg-destructive/5 p-3">{preview.readiness.blocking.map((item, index) => <p key={index} className="text-xs text-destructive">{item}</p>)}</div> : <p className="text-sm text-success">Nenhuma pendência obrigatória para emissão.</p>}
       {preview?.layout.warnings.length ? <div className="space-y-1 rounded-md bg-warning/5 p-3">{preview.layout.warnings.map((item, index) => <p key={index} className="text-xs text-warning">{item}</p>)}</div> : null}
     </div></DialogContent></Dialog>
     <Dialog open={inspectorOpen} onOpenChange={setInspectorOpen}><DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Informações da seção</DialogTitle></DialogHeader><div className="max-h-[70vh] overflow-y-auto"><SectionInspector key={scope + ":mobile"} {...inspectorProps} /></div></DialogContent></Dialog>
-    <Dialog open={optionalOpen} onOpenChange={setOptionalOpen}><DialogContent><DialogHeader><DialogTitle>Módulos opcionais</DialogTitle><DialogDescription>Defina quais seções se aplicam a este manual. A macroestrutura permanece protegida.</DialogDescription></DialogHeader><div className="space-y-3">{optionalManualSectionIds.map(id => <label key={id} className="flex items-center gap-3 rounded-md border border-border p-3 text-sm"><input type="checkbox" checked={editorial?.sections[id]?.enabled !== false} disabled={!editorial || editorial.canEdit === false || role === "validator" || actionBusy || compiling} onChange={event => void editorialAction({ action: "settings", optional: { [id]: event.target.checked } }).catch(cause => setError(cause instanceof Error ? cause.message : "Não foi possível atualizar a aplicabilidade."))} /><span>{editableManualSections.find(section => section.id === id)?.title ?? id}</span>{editorial?.sections[id]?.enabled === false && <span className="ml-auto text-xs text-muted-foreground">Não aplicável</span>}</label>)}</div></DialogContent></Dialog>
+    <Dialog open={manual !== "acabamentos" && optionalOpen} onOpenChange={setOptionalOpen}><DialogContent><DialogHeader><DialogTitle>Módulos opcionais</DialogTitle><DialogDescription>Defina quais seções se aplicam a este manual. A macroestrutura permanece protegida.</DialogDescription></DialogHeader><div className="space-y-3">{optionalManualSectionIds.map(id => <label key={id} className="flex items-center gap-3 rounded-md border border-border p-3 text-sm"><input type="checkbox" checked={editorial?.sections[id]?.enabled !== false} disabled={!editorial || editorial.canEdit === false || role === "validator" || actionBusy || compiling} onChange={event => void editorialAction({ action: "settings", optional: { [id]: event.target.checked } }).catch(cause => setError(cause instanceof Error ? cause.message : "Não foi possível atualizar a aplicabilidade."))} /><span>{editableManualSections.find(section => section.id === id)?.title ?? id}</span>{editorial?.sections[id]?.enabled === false && <span className="ml-auto text-xs text-muted-foreground">Não aplicável</span>}</label>)}</div></DialogContent></Dialog>
   </div>
 }
 

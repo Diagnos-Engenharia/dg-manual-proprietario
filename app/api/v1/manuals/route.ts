@@ -1,4 +1,4 @@
-import { and,desc,eq,gt } from "drizzle-orm"
+import { and,desc,eq,gt,inArray } from "drizzle-orm"
 import { db } from "@/lib/db"
 import { developments,manualVersions } from "@/lib/db/schema"
 import { PublicApiError,parseLimit,parseSince,publicApiFailure,publicJson,publicOptions,requirePublicApiScope } from "@/lib/public-api"
@@ -14,7 +14,7 @@ export async function GET(request:Request){
     const limit=parseLimit(url.searchParams.get("limit"))
     if(manualType&&manualType!=="proprietario"&&manualType!=="sindico")throw new PublicApiError(400,"invalid_manual_type","manual_type deve ser proprietario ou sindico.")
 
-    const conditions=[eq(manualVersions.organizationId,auth.organizationId)]
+    const conditions=[eq(manualVersions.organizationId,auth.organizationId),inArray(manualVersions.manualType,["proprietario","sindico"])]
     if(developmentId)conditions.push(eq(manualVersions.developmentId,developmentId))
     if(manualType)conditions.push(eq(manualVersions.manualType,manualType))
     if(status)conditions.push(eq(manualVersions.status,status))

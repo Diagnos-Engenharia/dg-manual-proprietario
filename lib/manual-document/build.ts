@@ -52,9 +52,8 @@ const definitions: SectionDefinition[] = [
   { id: "reformas", title: "Reformas na unidade", number: "6" },
   { id: "documentacao", title: "Documentação da unidade", number: "7", children: [
     { id: "manutencao-tabela", title: "Programa e tabelas de manutenção", number: "7.1" },
-    { id: "acabamentos", title: "Tabela de acabamentos", number: "7.2" },
-    { id: "fornecedores", title: "Fornecedores", number: "7.3" },
-    { id: "projetistas", title: "Projetistas", number: "7.4" },
+    { id: "fornecedores", title: "Fornecedores", number: "7.2" },
+    { id: "projetistas", title: "Projetistas", number: "7.3" },
   ] },
   { id: "definicoes", title: "Definições e Conceitos", number: "8", children: [
     { id: "glossario", title: "Glossário", number: "8.1", optional: true },
@@ -287,24 +286,7 @@ export function buildManualDocument(input: BuildManualDocumentInput, purpose: "p
     if (visible(warranties.validationStatus)) warranties.blocks.push(...rendered(warrantyTableBlocks(warrantyRows), warranties.validationStatus))
   }
 
-  const finishing = byId.get("acabamentos")!
-  finishing.editHref = `${baseHref}?modulo=elaboracao&aba=acabamentos${manualQuery}`
-  if (input.manualType === "proprietario") {
-    const towers = Array.from(new Set(input.finishing.map(table => table.tower))).sort((a, b) => a.localeCompare(b, "pt-BR", { numeric: true }))
-    let finishIndex = 0
-    finishing.children = towers.map((tower, index): ManualSection => {
-      const tables = input.finishing.filter(table => table.tower === tower).sort((a, b) => a.typology.localeCompare(b.typology, "pt-BR", { numeric: true }))
-      const children = tables.map((table): ManualSection => {
-        const status: ContentStatus = table.status === "aprovado" || table.status === "aguardando_validacao" || table.status === "reprovado" ? table.status : "rascunho"
-        return { id: `acabamento-${table.id}`, type: "content", title: table.typology, validationStatus: status, renderPolicy: policy(status), blocks: visible(status) ? rendered(finishingTableBlocks(table), status) : [], children: [], editHref: `${finishing.editHref}&tipologia=${encodeURIComponent(table.typology)}`, number: `7.2.${++finishIndex}` }
-      })
-      return { id: `acabamentos-torre-${index}`, type: "content", title: tower || "Acabamentos das unidades", validationStatus: combinedStatus(children.map(value => value.validationStatus)), renderPolicy: "structure", blocks: [], children, editHref: finishing.editHref }
-    })
-    finishing.validationStatus = combinedStatus(finishing.children.map(value => value.validationStatus))
-  } else {
-    finishing.validationStatus = "nao_aplicavel"
-    finishing.optional = true
-    byId.get("documentacao")!.children = byId.get("documentacao")!.children.filter(value => value.id !== "acabamentos")
+  if (input.manualType === "sindico") {
     byId.get("reformas")!.title = "Reformas nas áreas comuns"
     byId.get("documentacao")!.title = "Documentação das áreas comuns"
   }

@@ -1,0 +1,11 @@
+export type FinishingGroup = "ambientes" | "materiais" | "hidraulicas" | "esquadrias" | "eletricas"
+export type FinishingRow = Record<string, string> & { id: string }
+export type FinishingTableData = Record<FinishingGroup, FinishingRow[]>
+export type FinishingStatus = "rascunho" | "aguardando_validacao" | "aprovado" | "reprovado"
+export type UnitInput = { id?: string; tower: string; floor: string; number: string; typology: string; area: string; expectedRevision?: number }
+export type DevelopmentUnit = { id: string; developmentId: string; organizationId: string; tower: string; floor: string; number: string; typology: string; area: string; revision: number; lastEditorId: string; createdAt: string; updatedAt: string }
+export type FinishingTable = { id: string; unitId: string | null; tower: string; typology: string; unitModel: string; area: string; revision: number; status: FinishingStatus; data: FinishingTableData; lastEditorId: string; updatedAt: string; comment: string | null }
+export type UnitDocumentVersion = { id: string; unitId: string | null; revision: number; status: string; comment: string | null; filename: string; pathname: string; pages: number; sections: number; attachments: number; createdBy: string; createdAt: string; sourceFingerprint: string | null; sourceSnapshot: unknown }
+export type FinishingUnitSummary = DevelopmentUnit & { table: FinishingTable | null; fingerprint: string; latestVersion: UnitDocumentVersion | null; publishedVersion: UnitDocumentVersion | null; emissionStatus: "pendente" | "validacao" | "emitida" | "atualizacao_pendente" }
+export type UnitCatalog = { actorId: string; units: FinishingUnitSummary[]; legacyTables: FinishingTable[]; canEdit: boolean; canValidate: boolean }
+export type FinishingMutation = { developmentId: string; unitId: string; action: "save" | "copy" | "submit" | "approve" | "reject"; expectedFingerprint: string; data?: FinishingTableData; sourceTableId?: string; comment?: string }

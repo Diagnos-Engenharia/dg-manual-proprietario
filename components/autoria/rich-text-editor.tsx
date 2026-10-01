@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { EditorContent, useEditor } from "@tiptap/react"
 import type { Editor } from "@tiptap/core"
 import StarterKit from "@tiptap/starter-kit"
@@ -10,9 +10,12 @@ import { Table } from "@tiptap/extension-table"
 import TableRow from "@tiptap/extension-table-row"
 import TableCell from "@tiptap/extension-table-cell"
 import TableHeader from "@tiptap/extension-table-header"
-import { Bold, ExternalLink, Italic, Link2, List, ListOrdered, Plus, Table2, Underline as UnderlineIcon } from "lucide-react"
+import { Bold, Italic, Link2, List, ListOrdered, Table2, Underline as UnderlineIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { sanitizeHtml, supportedVariables } from "@/lib/workflow"
+import { sanitizeHtml } from "@/lib/workflow"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
 const tools = [
   { label: "Título", icon: "H2", run: (editor: Editor | null) => editor?.chain().focus().toggleHeading({ level: 2 }).run() },
@@ -23,7 +26,10 @@ const tools = [
   { label: "Lista numerada", icon: ListOrdered, run: (editor: Editor | null) => editor?.chain().focus().toggleOrderedList().run() },
 ]
 
-export function RichTextEditor({ value, onChange, disabled, onInsertVariable }: { value: string; onChange: (html: string) => void; disabled?: boolean; onInsertVariable?: (variable: string) => void }) {
+export function RichTextEditor({ value, onChange, disabled }: { value: string; onChange: (html: string) => void; disabled?: boolean }) {
+  const [linkOpen, setLinkOpen] = useState(false)
+  const [linkUrl, setLinkUrl] = useState("")
+  const [linkError, setLinkError] = useState<string | null>(null)
   const editor = useEditor({
     immediatelyRender: false,
     editable: !disabled,
@@ -38,8 +44,19 @@ export function RichTextEditor({ value, onChange, disabled, onInsertVariable }: 
   useEffect(() => { if (editor && editor.getHTML() !== value) editor.commands.setContent(sanitizeHtml(value), { emitUpdate: false }) }, [editor, value])
 
   function insertLink() {
-    const url = window.prompt("URL do link")
-    if (url) editor?.chain().focus().setLink({ href: url }).run()
+    setLinkUrl(editor?.getAttributes("link").href ?? "")
+    setLinkError(null); setLinkOpen(true)
+  }
+  function saveLink() {
+    const url = linkUrl.trim()
+    if (disabled || !editor) return
+    if (!url) editor.chain().focus().extendMarkRange("link").unsetLink().run()
+    else {
+      try { const parsed = new URL(url); if (!["http:", "https:", "mailto:"].includes(parsed.protocol)) throw new Error() }
+      catch { setLinkError("Informe um endereço completo, como https://exemplo.com."); return }
+      editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run()
+    }
+    setLinkOpen(false)
   }
 
   return <div className="overflow-hidden rounded-md border border-border bg-card">
@@ -48,8 +65,8 @@ export function RichTextEditor({ value, onChange, disabled, onInsertVariable }: 
       <span className="mx-1 h-5 w-px bg-border" />
       <button type="button" aria-label="Inserir tabela" title="Inserir tabela" disabled={disabled} onClick={() => editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()} className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-accent disabled:opacity-40"><Table2 className="h-4 w-4" /></button>
       <button type="button" aria-label="Inserir link" title="Inserir link" disabled={disabled} onClick={insertLink} className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-accent disabled:opacity-40"><Link2 className="h-4 w-4" /></button>
-      <div className="ml-auto flex items-center gap-1"><span className="text-[10px] uppercase text-muted-foreground">Inserir variável</span><select disabled={disabled} defaultValue="" onChange={(event) => { if (event.target.value) { editor?.chain().focus().insertContent(event.target.value).run(); onInsertVariable?.(event.target.value); event.target.value = "" } }} className="h-8 rounded border border-border bg-background px-1 text-xs"><option value="">Selecionar</option>{supportedVariables.map((variable) => <option key={variable} value={variable}>{variable}</option>)}</select></div>
     </div>
     <EditorContent editor={editor} onClick={(event)=>{if(disabled||!editor)return;if(event.target===event.currentTarget)editor.chain().focus("start").run()}} className={cn("prose-editor min-h-[280px] max-w-none cursor-text p-4 text-sm leading-relaxed outline-none [&_.ProseMirror]:min-h-[248px] [&_.ProseMirror]:outline-none", disabled && "cursor-not-allowed opacity-70")} />
+    <Dialog open={linkOpen} onOpenChange={setLinkOpen}><DialogContent><DialogHeader><DialogTitle>Inserir link</DialogTitle><DialogDescription>Informe o endereço do link para o texto selecionado. Deixe vazio para remover o link.</DialogDescription></DialogHeader><form onSubmit={event => { event.preventDefault(); saveLink() }} className="space-y-4"><label className="block space-y-2 text-sm"><span>Endereço do link</span><Input autoFocus value={linkUrl} onChange={event => setLinkUrl(event.target.value)} placeholder="https://" /></label>{linkError && <p role="alert" className="text-sm text-destructive">{linkError}</p>}<div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setLinkOpen(false)}>Cancelar</Button><Button type="submit" disabled={disabled}>Salvar link</Button></div></form></DialogContent></Dialog>
   </div>
 }

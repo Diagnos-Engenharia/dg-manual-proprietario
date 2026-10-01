@@ -1,33 +1,33 @@
 "use client"
 
-import { useEffect,useMemo,useRef,useState } from "react"
+import { useCallback,useEffect,useRef,useState } from "react"
 import { usePathname,useRouter,useSearchParams } from "next/navigation"
 import { Contact,Droplets,FileText,History,ListChecks } from "lucide-react"
 import { useDevelopmentStore } from "@/lib/store"
 import { type ChecklistItem,type ChecklistStatus,type ChecklistScope } from "@/lib/mock-data"
-import { checklistProgress } from "@/lib/progress"
 import { ChecklistInicial } from "@/components/autoria/checklist-inicial"
 import { ProjetistasFornecedores } from "@/components/autoria/projetistas-fornecedores"
 import { Comissionamento } from "@/components/autoria/comissionamento"
 import { TabelaAcabamentos } from "@/components/autoria/tabela-acabamentos"
 import { DevelopmentHistory } from "@/components/autoria/development-history"
 import { TextosManual } from "@/components/autoria/textos-manual"
-import { Badge } from "@/components/ui/badge"
 import { PersistenceStatus } from "@/hooks/use-persistence-status"
 import { saveDevelopmentModulePath } from "@/app/actions/developments"
 import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
 type SubTabId="checklist"|"textos"|"comissionamento"|"acabamentos"|"contatos"|"historico"
 const subTabs=[
   {id:"checklist",label:"Checklist Inicial",icon:ListChecks},
-  {id:"textos",label:"Textos técnicos",icon:FileText},
   {id:"comissionamento",label:"Comissionamento",icon:Droplets},
+  {id:"textos",label:"Textos técnicos",icon:FileText},
   {id:"acabamentos",label:"Tabela de Acabamentos",icon:FileText},
   {id:"contatos",label:"Projetistas e Fornecedores",icon:Contact},
   {id:"historico",label:"Histórico",icon:History},
 ] as const
 
-export function AuthoringWorkspace({role,developmentId}:{role:"admin"|"editor"|"validator";developmentId:string}){
+export function AuthoringWorkspace({role,developmentId,onUnsavedChange}:{role:"admin"|"editor"|"validator";developmentId:string;onUnsavedChange?:(dirty:boolean,discard?:()=>void)=>void}){
   const router=useRouter(),pathname=usePathname(),searchParams=useSearchParams()
   const requestedTab=searchParams.get("aba")
   const requested=requestedTab==="sistemas"?"textos":subTabs.some(tab=>tab.id===requestedTab)?requestedTab as SubTabId:null
@@ -36,11 +36,14 @@ export function AuthoringWorkspace({role,developmentId}:{role:"admin"|"editor"|"
   const [activeTab,setActiveTab]=useState<SubTabId>(requested??"checklist")
   const [checklistSaving,setChecklistSaving]=useState(false)
   const [checklistError,setChecklistError]=useState<string|null>(null)
+  const [finishingDirty,setFinishingDirty]=useState(false)
+  const [pendingTab,setPendingTab]=useState<SubTabId|null>(null)
+  const discardFinishing=useRef<(()=>void)|null>(null)
+  const finishingChanged=useCallback((dirty:boolean,discard?:()=>void)=>{setFinishingDirty(dirty);if(discard)discardFinishing.current=discard;onUnsavedChange?.(dirty,discard)},[onUnsavedChange])
   const queue=useRef(Promise.resolve())
   const checklistWriteSequence=useRef(0)
   const canEdit=role==="admin"||role==="editor"
   const checklist=development?.checklist??[]
-  const progress=useMemo(()=>checklistProgress(checklist),[checklist])
 
   useEffect(()=>{setActiveTab(requested??"checklist")},[requested])
   useEffect(()=>{
@@ -52,6 +55,10 @@ export function AuthoringWorkspace({role,developmentId}:{role:"admin"|"editor"|"
   },[requestedTab,searchParams,pathname,router])
   function selectTab(tab:SubTabId){
     if(tab==="textos"&&(checklistSaving||checklistError))return
+    if(finishingDirty&&tab!==activeTab){setPendingTab(tab);return}
+    navigateTab(tab)
+  }
+  function navigateTab(tab:SubTabId){
     setActiveTab(tab)
     const params=new URLSearchParams(searchParams.toString())
     params.set("modulo","elaboracao")
@@ -78,7 +85,6 @@ export function AuthoringWorkspace({role,developmentId}:{role:"admin"|"editor"|"
   }
 
   return <div className="flex flex-col gap-5">
-    <div className="flex justify-end"><Badge variant="outline">Checklist {progress}%</Badge></div>
     <div className="flex flex-wrap justify-center gap-1 border-b border-border pb-px">
       {subTabs.map(tab=>{const Icon=tab.icon;return <button key={tab.id} onClick={()=>selectTab(tab.id)} disabled={tab.id==="textos"&&(checklistSaving||Boolean(checklistError))} title={tab.id==="textos"?(checklistSaving?"Aguarde o salvamento do checklist":checklistError?"Tente salvar o checklist novamente para atualizar os sistemas":undefined):undefined} className={cn("flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60",activeTab===tab.id?"border-primary text-foreground":"border-transparent text-muted-foreground hover:text-foreground")}><Icon className="h-4 w-4"/>{tab.label}</button>})}
     </div>
@@ -88,9 +94,10 @@ export function AuthoringWorkspace({role,developmentId}:{role:"admin"|"editor"|"
       {activeTab==="checklist"&&<><ChecklistInicial items={checklist} onChangeStatus={setStatus} onChangeScopes={setScopes} disabled={!canEdit}/><PersistenceStatus state={checklistError?"error":checklistSaving?"saving":"clean"} savedAt={null} error={checklistError} onRetry={()=>persistChecklist(checklist)}/></>}
       {activeTab==="textos"&&<TextosManual key={developmentId} developmentId={developmentId}/>}
       {activeTab==="comissionamento"&&<Comissionamento developmentId={developmentId} disabled={!canEdit}/>} 
-      {activeTab==="acabamentos"&&<TabelaAcabamentos developmentId={developmentId} disabled={!canEdit} role={role}/>}
+      {activeTab==="acabamentos"&&<TabelaAcabamentos developmentId={developmentId} disabled={!canEdit} role={role} onUnsavedChange={finishingChanged}/>}
       {activeTab==="contatos"&&<ProjetistasFornecedores developmentId={developmentId} disabled={!canEdit}/>}
       {activeTab==="historico"&&<DevelopmentHistory developmentId={developmentId}/>}
     </div>
+    <Dialog open={pendingTab!==null} onOpenChange={open=>{if(!open)setPendingTab(null)}}><DialogContent><DialogHeader><DialogTitle>Descartar alterações?</DialogTitle><DialogDescription>Existem alterações não salvas nas tabelas de acabamento. Ao confirmar, esses rascunhos serão descartados.</DialogDescription></DialogHeader><div className="flex justify-end gap-2"><Button variant="outline" onClick={()=>setPendingTab(null)}>Continuar editando</Button><Button variant="destructive" onClick={()=>{if(!pendingTab)return;const next=pendingTab;setPendingTab(null);discardFinishing.current?.();finishingChanged(false);navigateTab(next)}}>Descartar e sair</Button></div></DialogContent></Dialog>
   </div>
 }

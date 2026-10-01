@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "db:migrate": "node scripts/migrate.mjs",
     "test:manual": "tsx --test tests/manual-*.test.ts",
+    "test:databook": "tsx --test tests/databook*.test.ts",
     "test:composer": "node tests/manual-composer.browser.cjs"
   },
   "dependencies": {

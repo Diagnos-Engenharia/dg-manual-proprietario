@@ -11,7 +11,7 @@ import type { requireDevelopmentAccess } from "@/lib/organization"
 import { buildManualDocument } from "./build"
 import { paginateManualDocument } from "./paginate"
 import { normalizeManualImage } from "./images"
-import type { ManualPreview } from "./types"
+import type { DocumentType, ManualPreview } from "./types"
 
 type AccessContext = Awaited<ReturnType<typeof requireDevelopmentAccess>>
 export async function loadManualSource(context: AccessContext, manualType: ManualType) {
@@ -21,7 +21,7 @@ export async function loadManualSource(context: AccessContext, manualType: Manua
   const [development, validations, finishing, files, versions] = await db.transaction(tx => Promise.all([
     tx.select().from(developments).where(and(eq(developments.id, developmentId), eq(developments.organizationId, organizationId))).limit(1),
     tx.select().from(developmentContentValidations).where(and(eq(developmentContentValidations.developmentId, developmentId), eq(developmentContentValidations.organizationId, organizationId))),
-    manualType === "proprietario" ? tx.select().from(finishingTables).where(and(eq(finishingTables.developmentId, developmentId), eq(finishingTables.organizationId, organizationId))).orderBy(finishingTables.tower, finishingTables.typology) : Promise.resolve([]),
+    Promise.resolve([]),
     tx.select().from(databookFiles).where(eq(databookFiles.developmentId, developmentId)).orderBy(databookFiles.folder, databookFiles.name),
     tx.select({ revision: manualVersions.revision }).from(manualVersions).where(and(eq(manualVersions.developmentId, developmentId), eq(manualVersions.organizationId, organizationId), eq(manualVersions.manualType, manualType))).orderBy(desc(manualVersions.revision)).limit(1),
   ]), { isolationLevel: "repeatable read", accessMode: "read only" })
@@ -43,7 +43,7 @@ const cache = new Map<string, { result: ManualPreview; expires: number; bytes: n
 let cacheBytes = 0
 const MAX_CACHE_BYTES = 24 * 1024 * 1024
 
-async function identityImage(url: string | null | undefined, context: AccessContext): Promise<string | null> {
+export async function hydrateDocumentImage(url: string | null | undefined, context: AccessContext): Promise<string | null> {
   if (!url) return null
   // Read only authenticated tenant assets. Never fetch arbitrary URLs from saved identity.
   const parsed = new URL(url, "https://manual.invalid")
@@ -77,7 +77,7 @@ export async function composeManualPreview(context: AccessContext, manualType: M
   document.metadata.fingerprint = fingerprint
   const warnings: string[] = []
   const image = async (url: string | null | undefined) => {
-    try { return await identityImage(url, context) } catch (error) { warnings.push(error instanceof Error ? error.message : "Falha ao carregar imagem."); return null }
+    try { return await hydrateDocumentImage(url, context) } catch (error) { warnings.push(error instanceof Error ? error.message : "Falha ao carregar imagem."); return null }
   }
   const [hero, logo, organizationLogo] = await Promise.all([image(document.identity.heroUrl), image(document.identity.developmentLogoUrl), image(document.metadata.organizationLogo)])
   document.identity.heroUrl = hero
@@ -113,3 +113,5 @@ export function parseManualType(value: unknown): ManualType {
   if (value === "sindico") return "sindico"
   throw new Error("Tipo de manual inválido")
 }
+
+export function parseDocumentType(value: unknown): DocumentType { return value === "acabamentos" ? "acabamentos" : parseManualType(value) }

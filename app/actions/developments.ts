@@ -2,7 +2,7 @@
 
 import { db } from '@/lib/db'
 import { auditLogs, databookFiles, developmentContentValidations, developments, finishingTableHistory, finishingTables, user } from '@/lib/db/schema'
-import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { isGlobalAdmin, permittedDevelopmentIds, recordAudit, requireActiveMembership, requireCompanyRole, requireDevelopmentAccess, requireDevelopmentRole } from '@/lib/organization'
 import { changedValidationContexts } from '@/lib/manual-document/invalidation'
@@ -60,7 +60,7 @@ export type FinishingTableData = { ambientes: FinishingRow[]; materiais: Finishi
 
 export async function getFinishingTable(developmentId: string, typology: string) {
   const context = await requireDevelopmentAccess(developmentId)
-  const rows = await db.select().from(finishingTables).where(and(eq(finishingTables.developmentId, developmentId), eq(finishingTables.organizationId, context.organization.id), eq(finishingTables.typology, typology))).limit(1)
+  const rows = await db.select().from(finishingTables).where(and(eq(finishingTables.developmentId, developmentId), eq(finishingTables.organizationId, context.organization.id), eq(finishingTables.typology, typology), isNull(finishingTables.unitId))).limit(1)
   return rows[0] ?? null
 }
 
@@ -72,6 +72,7 @@ export async function saveFinishingTable(input: { id?: string; developmentId: st
     const development = (await tx.select({ id: developments.id }).from(developments).where(and(eq(developments.id, input.developmentId), eq(developments.organizationId, context.organization.id))).for("update"))[0]
     if (!development) throw new Error("Empreendimento não encontrado")
     const existing = input.id ? (await tx.select().from(finishingTables).where(and(eq(finishingTables.id, input.id), eq(finishingTables.developmentId,input.developmentId),eq(finishingTables.organizationId, context.organization.id))).for("update"))[0] : undefined
+    if (existing?.unitId) throw new Error("Tabela da unidade: utilize a elaboração por unidade para salvar.")
     if (existing && input.expectedRevision !== undefined && existing.revision !== input.expectedRevision) throw new Error("Esta tabela foi alterada por outro usuário. Recarregue antes de salvar.")
     const id = existing?.id ?? crypto.randomUUID()
     const revision = (existing?.revision ?? 0) + 1

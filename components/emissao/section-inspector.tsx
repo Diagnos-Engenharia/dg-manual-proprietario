@@ -15,6 +15,7 @@ export type EditorialAction = { action: string; sectionId?: string; html?: strin
 export type ManualInteractionMode = "view" | "edit"
 
 type Props = {
+  documentType?: "proprietario" | "sindico" | "acabamentos"
   section: ManualSection | undefined
   page?: number
   role: "admin" | "editor" | "validator"
@@ -32,7 +33,7 @@ type Props = {
   pendingCount: number
 }
 
-export function SectionInspector({ section, page, role, editorial, attachments, onAction, interactionMode, onModeChange, onCompile, onPending, onHistory, ready, compileDisabled, compiling, pendingCount }: Props) {
+export function SectionInspector({ documentType, section, page, role, editorial, attachments, onAction, interactionMode, onModeChange, onCompile, onPending, onHistory, ready, compileDisabled, compiling, pendingCount }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => { setError(null) }, [section?.id])
@@ -62,7 +63,7 @@ export function SectionInspector({ section, page, role, editorial, attachments, 
       <Button size="sm" className="w-full" onClick={onCompile} disabled={compileDisabled} title={role === "validator" ? "A geração está disponível para administradores e editores." : !ready ? "Conclua as pendências obrigatórias para gerar." : "Gerar o manual conferido no preview"}>{compiling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}{compiling ? "Gerando…" : "Gerar PDF"}</Button>
       {!ready && <button type="button" className="w-full text-left text-[11px] text-primary hover:underline" onClick={onPending}>Ver pendências{pendingCount ? " (" + pendingCount + ")" : ""}</button>}
       <Button variant="ghost" size="sm" className="w-full justify-start" onClick={onHistory}><History className="h-3.5 w-3.5" />Ciclo de finalização</Button>
-      <Link href="/manuais" prefetch={false} className="block text-xs font-medium text-primary hover:underline">Manuais finalizados</Link>
+      <Link href={documentType === "acabamentos" ? "/manuais?tipo=unidades" : "/manuais"} prefetch={false} className="block text-xs font-medium text-primary hover:underline">{documentType === "acabamentos" ? "Unidades em Manuais" : "Manuais finalizados"}</Link>
     </div>
   </div>
 }

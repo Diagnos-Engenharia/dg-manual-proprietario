@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { and, eq, sql } from "drizzle-orm"
+import { and, eq, isNull, sql } from "drizzle-orm"
 import { db } from "@/lib/db"
 import { auditLogs, databookFiles, developmentContentValidations, developments, finishingTableHistory, finishingTables } from "@/lib/db/schema"
 import { canEditContent, canValidateContent, requireDevelopmentAccess } from "@/lib/organization"
@@ -26,7 +26,8 @@ export async function GET(request: Request) {
       const row = validations.find(row => row.contextKey === `${sectionId}::${manualScope(manualType)}`)
       return [sectionId, { ...content.editorial?.sections?.[sectionId], html: content.editorial?.sections?.[sectionId]?.html ?? "", status: row?.status ?? "rascunho", comment: row?.comment, lastEditorId: row?.lastEditorId }]
     }))
-    const finishing = manualType === "proprietario" ? await db.select().from(finishingTables).where(and(eq(finishingTables.developmentId, id), eq(finishingTables.organizationId, context.organization.id))) : []
+    // Retain legacy review links without exposing unit tables inside the manual.
+    const finishing = manualType === "proprietario" ? await db.select().from(finishingTables).where(and(eq(finishingTables.developmentId, id), eq(finishingTables.organizationId, context.organization.id), isNull(finishingTables.unitId))) : []
     const authoring = object(data.authoring)
     const warranties = content.editorial?.warranties ?? []
     return NextResponse.json({ sections, warranties, attachments: content.editorial?.attachments ?? {}, systemOrder: content.editorial?.systemOrder ?? [], contacts: authoring.contacts ?? [], commissioning: selectManualCommissioning(data, manualType), finishing, canEdit: canEditContent(context.developmentRole), canValidate: canValidateContent(context.developmentRole) }, { headers: { "Cache-Control": "private, no-store" } })
@@ -59,6 +60,7 @@ export async function POST(request: Request) {
         if (manualType !== "proprietario") throw new Error("Tabela de acabamentos fora do escopo deste manual")
         const table = (await tx.select().from(finishingTables).where(and(eq(finishingTables.id, String(body.tableId)), eq(finishingTables.developmentId, id), eq(finishingTables.organizationId, context.organization.id))).for("update"))[0]
         if (!table) throw new Error("Tabela não encontrada")
+        if (table.unitId) throw new Error("Tabela da unidade fora do escopo deste manual. Abra sua elaboração para validar.")
         if (typeof body.revision !== "number" || body.revision !== table.revision) throw new Error("Recarregue a tabela antes de validar esta revisão")
         if (review && table.status !== "aguardando_validacao") throw new Error("Conteúdo precisa estar aguardando validação")
         if (review && table.lastEditorId === context.user.id) throw new Error("Quem editou por último não pode validar o próprio conteúdo")

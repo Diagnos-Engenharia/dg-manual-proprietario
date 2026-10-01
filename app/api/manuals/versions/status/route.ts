@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server"
-import { and, eq, ne } from "drizzle-orm"
+import { and, eq, isNull, ne, sql } from "drizzle-orm"
 import { db } from "@/lib/db"
 import { auditLogs, developments, manualVersions } from "@/lib/db/schema"
 import { requireDevelopmentRole, type DevelopmentRole } from "@/lib/organization"
 import { manualApiError } from "@/lib/manual-document/http"
+import { FinishingContentError, loadFinishingSource } from "@/lib/finishing-units"
 
 export async function POST(request: Request) {
   try {
@@ -22,7 +23,14 @@ export async function POST(request: Request) {
       const current = (await tx.select().from(manualVersions).where(and(eq(manualVersions.id,body.id),eq(manualVersions.developmentId,development.id),eq(manualVersions.organizationId,context.organization.id))).for("update"))[0]
       if(!current)throw new Error("Versão não encontrada")
       if(current.status!==previous[body.status])throw new Error("Transição inválida para o estado atual da versão")
-      if(body.status==="publicado")await tx.update(manualVersions).set({status:"substituido"}).where(and(eq(manualVersions.developmentId,current.developmentId),eq(manualVersions.organizationId,context.organization.id),eq(manualVersions.manualType,current.manualType),eq(manualVersions.status,"publicado"),ne(manualVersions.id,current.id)))
+      if(current.manualType==="acabamentos" && ["aprovado","publicado"].includes(body.status)) {
+        await tx.execute(sql`SELECT id FROM organization WHERE id = ${context.organization.id} FOR SHARE`)
+        if(!current.unitId)throw new FinishingContentError("Esta revisão não possui unidade identificada.",400)
+        const source=await loadFinishingSource(context,current.unitId,tx)
+        if(!current.sourceFingerprint || current.sourceFingerprint!==source.fingerprint)throw new FinishingContentError("A identificação, conteúdo ou aprovação da unidade mudou. Emita uma nova revisão antes de publicar.",409)
+        if(source.source.table?.status!=="aprovado")throw new FinishingContentError("A tabela da unidade precisa estar aprovada.",400)
+      }
+      if(body.status==="publicado")await tx.update(manualVersions).set({status:"substituido"}).where(and(eq(manualVersions.developmentId,current.developmentId),eq(manualVersions.organizationId,context.organization.id),eq(manualVersions.manualType,current.manualType),current.unitId?eq(manualVersions.unitId,current.unitId):isNull(manualVersions.unitId),eq(manualVersions.status,"publicado"),ne(manualVersions.id,current.id)))
       await tx.update(manualVersions).set({status:body.status}).where(eq(manualVersions.id,current.id))
       await tx.insert(auditLogs).values({id:crypto.randomUUID(),organizationId:context.organization.id,actorId:context.user.id,action:"manual.version."+body.status,entityType:"development",entityId:current.developmentId,metadata:{path:["emissao",current.manualType],versionId:current.id,revision:current.revision,before:current.status,after:body.status}})
     })

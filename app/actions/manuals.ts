@@ -4,6 +4,8 @@ import { and, desc, eq, inArray } from "drizzle-orm"
 import { db } from "@/lib/db"
 import { developmentAssignments, developments, manualVersions, user } from "@/lib/db/schema"
 import { isGlobalAdmin, requireActiveMembership } from "@/lib/organization"
+import { listFinishingUnits } from "@/lib/finishing-units"
+import { listDevelopments } from "@/app/actions/developments"
 
 /** Published PDFs follow the same organization and development grants as authoring. */
 export async function listPublishedManuals() {
@@ -31,4 +33,13 @@ export async function listPublishedManuals() {
     ))
     .orderBy(desc(manualVersions.createdAt), desc(manualVersions.revision))
   return rows.map(row => ({ ...row, createdAt: row.createdAt.toISOString() }))
+}
+
+export async function listManualUnits() {
+  const developments = await listDevelopments()
+  const catalogs = await Promise.all(developments.map(async development => {
+    const catalog = await listFinishingUnits(development.id)
+    return catalog.units.map(unit => ({ ...unit, developmentName: development.name, client: development.client, canEdit: catalog.canEdit }))
+  }))
+  return catalogs.flat()
 }

@@ -101,7 +101,7 @@ test("legacy content is only reused in its recorded single scope with exact appr
   assert.equal(find(manager, "sistema-legacy"), undefined)
 })
 
-test("all approved finishing tables preserve tower, typology and environment grouping; drafts and common manual omit their rows", () => {
+test("finishing tables are independent documents and never enter either manual", () => {
   const source = input({ checklist: [] })
   source.finishing = [
     { id: "a", tower: "Torre A", typology: "Tipo 01", unitModel: "101", area: "70", revision: 1, status: "aprovado", data: { materiais: [{ id: "1", ambiente: "Cozinha", material: "Porcelanato", aplicacao: "Piso", marca: "MARCA_APROVADA_A", formato: "60 × 60" }] } },
@@ -109,12 +109,12 @@ test("all approved finishing tables preserve tower, typology and environment gro
     { id: "c", tower: "Torre B", typology: "Tipo 03", unitModel: "301", area: "90", revision: 3, status: "rascunho", data: { materiais: [{ id: "3", ambiente: "Sala", marca: "MARCA_RASCUNHO" }] } },
   ]
   const document = buildManualDocument(source)
-  assert.equal(find(document, "acabamentos").children.length, 2)
-  assert.ok(published(document).includes("MARCA_APROVADA_A"))
-  assert.ok(published(document).includes("ACABAMENTO_APROVADO_B"))
-  assert.ok(published(document).includes("COZINHA"))
+  assert.equal(find(document, "acabamentos"), undefined)
+  assert.ok(!published(document).includes("MARCA_APROVADA_A"))
+  assert.ok(!published(document).includes("ACABAMENTO_APROVADO_B"))
+  assert.ok(!published(document).includes("COZINHA"))
   assert.ok(!published(document).includes("MARCA_RASCUNHO"))
-  assert.deepEqual(find(document, "acabamento-c").blocks, [])
+  assert.equal(find(document, "acabamento-c"), undefined)
   const manager = buildManualDocument({ ...source, manualType: "sindico" })
   assert.equal(find(manager, "acabamentos"), undefined)
   assert.ok(!published(manager).includes("MARCA_APROVADA"))
@@ -159,15 +159,16 @@ test("official readiness blocks unapproved selected content and accepts approved
   assert.equal(assessManualReadiness(data, "sindico", 0, approved).ok, false)
 })
 
-test("readiness rejects draft finishing tables and existing draft editorial content", () => {
+test("manual readiness ignores separate finishing tables and still requires editorial approval", () => {
   const data = { ficha: { towers: "1", apartments: "20", typologies: "2", areas: "70", completionDate: "2026-10-01" }, checklist: [item("unit")], schedule: [{ id: "stage", name: "Etapa", weight: 100 }], manuals: { proprietario: { sistemas: { "unit::unidade": "<p>Descrição concluída</p>" }, editorial: { sections: { introducao: { html: "<p>Texto existente</p>", status: "aprovado" } } } } } }
   const approved = [validation("unit"), validation("unit", "manutencao")]
   const finishing = [{ id: "f", typology: "Tipo A", status: "rascunho", data: { ambientes: [{ ambiente: "Sala", teto: "Gesso" }] } }]
   const draft = assessManualReadiness(data, "proprietario", 1, approved, finishing)
   assert.equal(draft.ok, false)
-  assert.ok(draft.blocking.some(reason => reason.includes("Acabamentos")))
+  assert.ok(!draft.blocking.some(reason => reason.includes("Acabamentos")))
   assert.ok(draft.blocking.some(reason => reason.includes("introducao")))
-  assert.equal(assessManualReadiness(data, "proprietario", 1, [...approved, validation("introducao", "editorial")], [{ ...finishing[0], status: "aprovado" }]).ok, true)
+  assert.equal(assessManualReadiness(data, "proprietario", 1, [...approved, validation("introducao", "editorial")], finishing).ok, true)
+  assert.equal(assessManualReadiness(data, "proprietario", 0, [...approved, validation("introducao", "editorial")], []).ok, true)
 })
 
 test("approved HTML preserves Portuguese characters and typed headings, lists, callouts and tables", () => {
@@ -209,14 +210,14 @@ test("edits to legacy unscoped system maps reset exact matching scoped approvals
   assert.deepEqual(changedValidationContexts(before, after), [{ contextKey: "legacy::unidade", section: "sistemas" }, { contextKey: "legacy::unidade", section: "manutencao" }])
 })
 
-test("document edit links preserve manual and route to the specific system, service and finishing typology", () => {
+test("document edit links preserve manual and route to the specific system and service", () => {
   const source = input({ checklist: [item("both", ["unidade", "comum"])], authoring: { comissionamento: { agua: { company: "Empresa" } } } })
   source.finishing = [{ id: "finish", tower: "A", typology: "Tipo Á", unitModel: "101", area: "70", revision: 1, status: "rascunho", data: {} }]
   const document = buildManualDocument(source)
   for (const section of flattenSections(document.sections)) if (section.editHref) assert.equal(new URL(section.editHref, "https://test.invalid").searchParams.get("manual"), "proprietario")
   assert.equal(new URL(find(document, "sistema-both").editHref!, "https://test.invalid").searchParams.get("item"), "both::unidade")
   assert.equal(new URL(find(document, "agua").editHref!, "https://test.invalid").searchParams.get("servico"), "agua")
-  assert.equal(new URL(find(document, "acabamento-finish").editHref!, "https://test.invalid").searchParams.get("tipologia"), "Tipo Á")
+  assert.equal(find(document, "acabamento-finish"), undefined)
   const manager = buildManualDocument({ ...source, manualType: "sindico" })
   assert.equal(new URL(find(manager, "sistema-both").editHref!, "https://test.invalid").searchParams.get("manual"), "sindico")
   assert.equal(new URL(find(manager, "sistema-both").editHref!, "https://test.invalid").searchParams.get("item"), "both::comum")
@@ -243,12 +244,13 @@ test("review preview shows only submitted text in yellow; approval restores desi
   assert.equal(assessManualReadiness(data, "proprietario", 0, source.validations).ok, false)
 })
 
-test("review status covers editorial, warranty, contacts, commissioning and finishing tables with exact scope", () => {
+test("review status covers editorial, warranty, contacts and commissioning with exact scope; finishing remains separate", () => {
   const source = input({ checklist: [], manuals: { proprietario: { editorial: { sections: { finalidade: { html: "<p>FINALIDADE_EM_VALIDACAO</p>" } }, warranties: [{ sistema: "GARANTIA_EM_VALIDACAO", prazo: "Conforme contrato" }] } } }, authoring: { contacts: [{ id: "a", kind: "projetista", name: "PROJETISTA_EM_VALIDACAO", company: "Empresa", discipline: "Estrutural" }], comissionamento: { agua: { company: "AGUA_EM_VALIDACAO" } } } }, ["finalidade", "garantias-tabela", "projetistas", "responsaveis-tecnicos", "agua"].map(id => validation(id, "editorial", "aguardando_validacao")))
   source.finishing = [{ id: "a", tower: "A", typology: "01", unitModel: "101", area: "70", revision: 1, status: "aguardando_validacao", data: { ambientes: [{ ambiente: "Sala", teto: "ACABAMENTO_EM_VALIDACAO" }] } }]
   const preview = buildManualDocument(source, "preview")
-  for (const marker of ["FINALIDADE", "GARANTIA", "PROJETISTA", "AGUA", "ACABAMENTO"]) assert.ok(published(preview).includes(marker + "_EM_VALIDACAO"))
-  for (const id of ["finalidade", "garantias-tabela", "projetistas", "responsaveis-tecnicos", "agua", "acabamento-a"]) assert.ok(find(preview, id).blocks.every(block => block.reviewStatus === "aguardando_validacao"))
+  for (const marker of ["FINALIDADE", "GARANTIA", "PROJETISTA", "AGUA"]) assert.ok(published(preview).includes(marker + "_EM_VALIDACAO"))
+  assert.ok(!published(preview).includes("ACABAMENTO_EM_VALIDACAO"))
+  for (const id of ["finalidade", "garantias-tabela", "projetistas", "responsaveis-tecnicos", "agua"]) assert.ok(find(preview, id).blocks.every(block => block.reviewStatus === "aguardando_validacao"))
   assert.ok(!published(buildManualDocument(source)).includes("_EM_VALIDACAO"))
   assert.ok(!published(buildManualDocument({ ...source, manualType: "sindico" }, "preview")).includes("_EM_VALIDACAO"))
 })
