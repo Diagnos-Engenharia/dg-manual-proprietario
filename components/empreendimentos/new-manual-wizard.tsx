@@ -15,7 +15,9 @@ const phaseNames=["Ficha Técnica do Empreendimento","Checklist Inicial","Manual
 const defaultWeights=[25,25,25,25]
 type DateRow={name:string;start:string;end:string;weight:number}
 type Props={open:boolean;onOpenChange:(open:boolean)=>void;organizationName:string}
-type UploadResult={id:string;filename:string;status:string;provider:string|null;model:string|null;error?:string}\ntype ProcessFinding={checklistItemId:string;label:string;category:string;scopes:string[];confidence:number;page:number|null;evidence:string}\ntype ProcessResult={summary:{total:number;confirmed:number;review:number;ignored:number;threshold:number};findings:ProcessFinding[];error?:string}
+type UploadResult={id:string;filename:string;status:string;provider:string|null;model:string|null;error?:string}
+type ProcessFinding={checklistItemId:string;label:string;category:string;scopes:string[];confidence:number;page:number|null;evidence:string}
+type ProcessResult={summary:{total:number;confirmed:number;review:number;ignored:number;threshold:number};findings:ProcessFinding[];error?:string}
 
 function validIsoDate(value:string){if(!/^\d{4}-\d{2}-\d{2}$/.test(value))return false;const date=new Date(`${value}T00:00:00`);return date.getFullYear()>=2000&&date.getFullYear()<=2100&&date.toISOString().slice(0,10)===value}
 function dateError(row:DateRow){if(!validIsoDate(row.start)||!validIsoDate(row.end))return"Informe datas válidas entre 2000 e 2100.";if(row.end<row.start)return"A data final não pode ser anterior à inicial.";return""}
@@ -29,7 +31,8 @@ export function NewManualWizard({open,onOpenChange,organizationName}:Props){
   const [form,setForm]=useState({name:"",towers:"",apartments:"",typologies:"",areas:"",completionDate:""})
   const [dates,setDates]=useState<DateRow[]>(()=>phaseNames.map((name,index)=>({name,start:"",end:"",weight:defaultWeights[index]})))
   const [memorial,setMemorial]=useState<File|null>(null)
-  const [uploadResult,setUploadResult]=useState<UploadResult|null>(null)\n  const [processResult,setProcessResult]=useState<ProcessResult|null>(null)
+  const [uploadResult,setUploadResult]=useState<UploadResult|null>(null)
+  const [processResult,setProcessResult]=useState<ProcessResult|null>(null)
   const weightTotal=dates.reduce((sum,item)=>sum+(Number.isFinite(item.weight)?item.weight:0),0)
   const validFicha=Boolean(form.name&&form.towers&&form.apartments&&form.typologies&&form.areas&&validIsoDate(form.completionDate))
   const dateErrors=dates.map(item=>dateError(item))
@@ -90,6 +93,26 @@ export function NewManualWizard({open,onOpenChange,organizationName}:Props){
       setUploadResult(result)
     }catch(cause){setError(cause instanceof Error?cause.message:"Não foi possível enviar o Memorial")}
     finally{setSubmitting(false)}
+  }
+
+  async function processMemorial(){
+    if(!uploadResult?.id||submitting)return
+    setSubmitting(true);setError(null)
+    try{
+      const response=await fetch("/api/memorial/process",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({importId:uploadResult.id}),
+      })
+      const result=await response.json() as ProcessResult
+      if(!response.ok)throw new Error(result.error||"Não foi possível analisar o Memorial")
+      setProcessResult(result)
+      setUploadResult(current=>current?{...current,status:"processed"}:current)
+    }catch(cause){
+      setError(cause instanceof Error?cause.message:"Não foi possível analisar o Memorial")
+    }finally{
+      setSubmitting(false)
+    }
   }
 
   return <Dialog open={open} onOpenChange={value=>!value&&close()}>
