@@ -1,4 +1,5 @@
 import { createDecipheriv,scryptSync } from "node:crypto"
+import { eq } from "drizzle-orm"
 import { db } from "@/lib/db"
 import { platformIntegrations } from "@/lib/db/schema"
 
@@ -19,7 +20,7 @@ function unseal(payload:string){
 }
 
 export async function getPlatformAiRuntime():Promise<PlatformAiRuntime|null>{
-  const row=(await db.select().from(platformIntegrations).limit(1))[0]
+  const row=(await db.select().from(platformIntegrations).where(eq(platformIntegrations.provider,"openai")).limit(1))[0]
   if(!row)return null
   if(row.provider!=="openai")throw new Error("A integração de IA precisa ser configurada novamente como OpenAI")
   if(row.status!=="verified")throw new Error("A integração OpenAI precisa ser testada e validada antes do processamento")
