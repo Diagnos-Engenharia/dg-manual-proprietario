@@ -5,7 +5,7 @@ import { and, count, eq, inArray, isNull, or } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { db } from "@/lib/db"
 import { developmentAssignments, developments, members, organizations, organizationInvitations, user } from "@/lib/db/schema"
-import { isGlobalAdmin, recordAudit, requireActiveMembership, requireAuthenticatedUser, requireCompanyRole, type DevelopmentRole } from "@/lib/organization"
+import { isGlobalAdmin, recordAudit, requireActiveMembership, requireAuthenticatedUser, requireCompanyRole, requirePlatformManager, type DevelopmentRole } from "@/lib/organization"
 
 const hashToken = (token: string) => createHash("sha256").update(token).digest("hex")
 
@@ -23,14 +23,14 @@ export async function listOrganizationMembers() {
 async function ensureNotLastAdmin(memberId: string, organizationId: string, nextRole?: string, nextStatus?: string) {
   const target = await db.select({ role: members.role, status: members.status }).from(members).where(and(eq(members.id, memberId), eq(members.organizationId, organizationId))).limit(1)
   if (!target[0]) throw new Error("Usuário não encontrado")
-  if (target[0].role === "owner" && (nextRole !== undefined || nextStatus === "suspended" || nextStatus === "removed")) throw new Error("Não é possível alterar o proprietário da organização")
+  if (target[0].role === "owner" && (nextRole !== undefined || nextStatus === "suspended" || nextStatus === "removed")) throw new Error("O acesso legado do proprietário só pode ser alterado pelo Gerenciador")
   if (target[0].role === "admin" && target[0].status === "active" && (nextRole !== "admin" || nextStatus === "suspended" || nextStatus === "removed")) {
     const admins = await db.select({ total: count() }).from(members).where(and(eq(members.organizationId, organizationId), or(eq(members.role, "admin"),eq(members.role,"owner")), eq(members.status, "active")))
     if (Number(admins[0]?.total ?? 0) <= 1) throw new Error("Não é possível remover, suspender ou rebaixar o último administrador ativo")
   }
 }
 
-export async function updateMemberRole(memberId: string, role: "admin" | "editor" | "validator") {
+export async function updateMemberRole(memberId: string, role: "editor") {
   const context = await requireCompanyRole(["admin"])
   await ensureNotLastAdmin(memberId, context.organization.id, role, undefined)
   await db.update(members).set({ role }).where(and(eq(members.id, memberId), eq(members.organizationId, context.organization.id)))
@@ -40,6 +40,9 @@ export async function updateMemberRole(memberId: string, role: "admin" | "editor
 
 export async function updateMemberStatus(memberId: string, status: "active" | "suspended" | "removed") {
   const context = await requireCompanyRole(["admin"])
+  const target=await db.select({role:members.role}).from(members).where(and(eq(members.id,memberId),eq(members.organizationId,context.organization.id))).limit(1)
+  if(!target[0])throw new Error("Usuário não encontrado")
+  if(isGlobalAdmin(target[0].role))throw new Error("Administradores são gerenciados pelo Gerenciador da plataforma")
   await ensureNotLastAdmin(memberId, context.organization.id, undefined, status)
   await db.update(members).set({ status }).where(and(eq(members.id, memberId), eq(members.organizationId, context.organization.id)))
   await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: `member.${status}`, entityType: "member", entityId: memberId })
@@ -58,30 +61,30 @@ export async function setDevelopmentAssignment(memberId:string,developmentId:str
     db.select({id:developments.id}).from(developments).where(and(eq(developments.id,developmentId),eq(developments.organizationId,context.organization.id))).limit(1),
   ])
   if(!person[0]||!development[0])throw new Error("Usuário ou empreendimento não encontrado")
-  if(isGlobalAdmin(person[0].role))throw new Error("O administrador global já tem acesso a todos os empreendimentos")
-  if(role && !["admin_empreendimento","editor","validator"].includes(role))throw new Error("Perfil inválido")
+  if(isGlobalAdmin(person[0].role))throw new Error("O Administrador já possui acesso a todos os empreendimentos")
+  if(role && role!=="editor")throw new Error("Novos acessos de empreendimento devem utilizar o perfil Construtor")
   await db.delete(developmentAssignments).where(and(eq(developmentAssignments.organizationId,context.organization.id),eq(developmentAssignments.memberId,memberId),eq(developmentAssignments.developmentId,developmentId)))
   if(role)await db.insert(developmentAssignments).values({id:crypto.randomUUID(),organizationId:context.organization.id,memberId,developmentId,role})
   await recordAudit({organizationId:context.organization.id,actorId:context.user.id,action:role?"development.access_granted":"development.access_revoked",entityType:"development",entityId:developmentId,metadata:{memberId,role}})
   revalidatePath("/configuracoes");revalidatePath("/empreendimentos")
 }
-export async function createOrganizationInvitation(input:{email:string;name:string;role:"admin_empreendimento"|"editor"|"validator";developmentId:string}) {
+
+export async function createOrganizationInvitation(input:{email:string;name:string;developmentId:string;role?:string}) {
   const context=await requireCompanyRole(["admin"])
   const email=input.email.trim().toLowerCase()
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||!input.name.trim())throw new Error("Informe nome e e-mail válidos")
-  if(!["admin_empreendimento","editor","validator"].includes(input.role))throw new Error("Perfil inválido")
   const owned=await db.select({id:developments.id}).from(developments).where(and(eq(developments.id,input.developmentId),eq(developments.organizationId,context.organization.id))).limit(1)
   if(!owned[0])throw new Error("Selecione um empreendimento válido")
   const existing=await db.select({id:members.id,role:members.role}).from(members).innerJoin(user,eq(members.userId,user.id))
     .where(and(eq(members.organizationId,context.organization.id),eq(user.email,email))).limit(1)
   if(existing[0]) {
-    if(isGlobalAdmin(existing[0].role))throw new Error("O usuário já tem acesso global")
-    await setDevelopmentAssignment(existing[0].id,input.developmentId,input.role)
+    if(isGlobalAdmin(existing[0].role))throw new Error("O usuário já é Administrador da construtora")
+    await setDevelopmentAssignment(existing[0].id,input.developmentId,"editor")
     return ""
   }
   const token=crypto.randomUUID()
-  await db.insert(organizationInvitations).values({id:crypto.randomUUID(),organizationId:context.organization.id,email,name:input.name.trim(),role:input.role,developmentIds:[input.developmentId],tokenHash:hashToken(token),expiresAt:new Date(Date.now()+7*24*60*60*1000),invitedBy:context.user.id})
-  await recordAudit({organizationId:context.organization.id,actorId:context.user.id,action:"invitation.created",entityType:"invitation",entityId:hashToken(token),metadata:{email,role:input.role,developmentIds:[input.developmentId]}})
+  await db.insert(organizationInvitations).values({id:crypto.randomUUID(),organizationId:context.organization.id,email,name:input.name.trim(),role:"editor",developmentIds:[input.developmentId],tokenHash:hashToken(token),expiresAt:new Date(Date.now()+7*24*60*60*1000),invitedBy:context.user.id})
+  await recordAudit({organizationId:context.organization.id,actorId:context.user.id,action:"invitation.created",entityType:"invitation",entityId:hashToken(token),metadata:{email,role:"editor",developmentIds:[input.developmentId]}})
   return "/convite/"+token
 }
 
@@ -109,35 +112,42 @@ export async function acceptOrganizationInvitation(token: string) {
   const invite = rows[0]
   if (!invite || invite.expiresAt < new Date()) throw new Error("Convite inválido ou expirado")
   if (invite.email !== current.email.toLowerCase()) throw new Error("Este convite foi enviado para outro e-mail")
-  const allowed=await db.select({id:developments.id}).from(developments).where(and(eq(developments.organizationId,invite.organizationId),inArray(developments.id,invite.developmentIds)))
-  if(!allowed.length||allowed.length!==invite.developmentIds.length)throw new Error("Empreendimento não disponível")
+
   const existing=await db.select().from(members).where(and(eq(members.organizationId,invite.organizationId),eq(members.userId,current.id))).limit(1)
   if(existing[0] && existing[0].status!=="active") throw new Error("Solicite a reativação do seu acesso")
   const memberId=existing[0]?.id??crypto.randomUUID()
-  if(!existing[0])await db.insert(members).values({id:memberId,organizationId:invite.organizationId,userId:current.id,role:invite.role,status:"active",lastAccessAt:new Date()})
-  if(existing[0] && isGlobalAdmin(existing[0].role))throw new Error("O usuário já possui acesso global")
-  for(const developmentId of invite.developmentIds) {
-    await db.delete(developmentAssignments).where(and(eq(developmentAssignments.organizationId,invite.organizationId),eq(developmentAssignments.memberId,memberId),eq(developmentAssignments.developmentId,developmentId)))
-    await db.insert(developmentAssignments).values({id:crypto.randomUUID(),organizationId:invite.organizationId,developmentId,memberId,role:invite.role})
+
+  if(invite.role==="admin"){
+    if(existing[0])await db.update(members).set({role:"admin",status:"active",lastAccessAt:new Date()}).where(eq(members.id,memberId))
+    else await db.insert(members).values({id:memberId,organizationId:invite.organizationId,userId:current.id,role:"admin",status:"active",lastAccessAt:new Date()})
+  }else{
+    const allowed=await db.select({id:developments.id}).from(developments).where(and(eq(developments.organizationId,invite.organizationId),inArray(developments.id,invite.developmentIds)))
+    if(!allowed.length||allowed.length!==invite.developmentIds.length)throw new Error("Empreendimento não disponível")
+    if(!existing[0])await db.insert(members).values({id:memberId,organizationId:invite.organizationId,userId:current.id,role:"editor",status:"active",lastAccessAt:new Date()})
+    if(existing[0] && isGlobalAdmin(existing[0].role))throw new Error("O usuário já possui acesso administrativo")
+    for(const developmentId of invite.developmentIds) {
+      await db.delete(developmentAssignments).where(and(eq(developmentAssignments.organizationId,invite.organizationId),eq(developmentAssignments.memberId,memberId),eq(developmentAssignments.developmentId,developmentId)))
+      await db.insert(developmentAssignments).values({id:crypto.randomUUID(),organizationId:invite.organizationId,developmentId,memberId,role:"editor"})
+    }
   }
+
   await db.update(organizationInvitations).set({ status: "accepted", acceptedBy: current.id, acceptedAt: new Date() }).where(eq(organizationInvitations.id, invite.id))
-  await recordAudit({ organizationId: invite.organizationId, actorId: current.id, action: "invitation.accepted", entityType: "invitation", entityId: invite.id })
+  await recordAudit({ organizationId: invite.organizationId, actorId: current.id, action: "invitation.accepted", entityType: "invitation", entityId: invite.id, metadata:{role:invite.role} })
   revalidatePath("/configuracoes")
+  revalidatePath("/gerenciador")
   return invite.organizationId
 }
 
 export async function createOrganization(input: { name: string; logo?: string; initials?: string; primaryColor?: string }) {
+  await requirePlatformManager()
   const current = await requireAuthenticatedUser()
   const name = input.name.trim()
   if (!name) throw new Error("Informe o nome da construtora")
-  const existing = await db.select({ id: members.id }).from(members).where(and(eq(members.userId, current.id), eq(members.status, "active"))).limit(1)
-  if (existing[0]) throw new Error("Você já pertence a uma construtora")
   const organizationId = crypto.randomUUID()
   const metadata = JSON.stringify({ initials: (input.initials?.trim() || name.slice(0, 2)).toUpperCase().slice(0, 4), primaryColor: input.primaryColor || "#2563eb" })
   await db.insert(organizations).values({ id: organizationId, name, logo: input.logo?.trim() || null, slug: `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${organizationId.slice(0, 8)}`, metadata })
-  await db.insert(members).values({ id: crypto.randomUUID(), organizationId, userId: current.id, role: "owner", status: "active", lastAccessAt: new Date() })
   await db.update(developments).set({ organizationId }).where(and(eq(developments.userId, current.id), isNull(developments.organizationId)))
-  revalidatePath("/")
+  revalidatePath("/gerenciador")
 }
 
 export async function updateOrganization(input: { name: string; logo?: string; initials?: string; primaryColor?: string }) {
