@@ -1,6 +1,6 @@
 # PRD — Unidades, tabelas de acabamento e DATABOOK
 
-Data: 01/10/2026. Implementação na PR #5 do DG Manual.
+Data: 01/10/2026. Implementação inicial na PR #5; revisão de cadastro e formato das tabelas após a avaliação em produção.
 
 ## Objetivo
 
@@ -39,7 +39,7 @@ Pastas padrão, criadas e renomeadas persistem. Não excluir ou retirar um arqui
 
 A guia Tabela de Acabamentos terá uma lista pesquisável de unidades à esquerda e identificação/edição à direita. Oferecer Cadastrar unidade e editar sua identificação em diálogo da aplicação. Não transformar quantidades da ficha ou rótulos antigos em unidades fictícias.
 
-Cada unidade possui ID estável, empreendimento, torre/bloco, pavimento, número, tipologia e área. Número e tipologia são obrigatórios. Torre/bloco, pavimento e área podem ficar sem informação; área preenchida deve ser positiva. Número é único dentro da mesma torre/bloco do empreendimento, sem diferenças apenas de caixa ou espaços. Identificação aparece no cabeçalho da edição e no documento.
+O cadastro e a edição de unidade oferecem apenas Número da unidade, obrigatório, e Torre ou bloco, opcional. A unidade possui ID estável e vínculo ao empreendimento. Número é único dentro da mesma torre/bloco do empreendimento, sem diferenças apenas de caixa ou espaços. Identificação aparece no cabeçalho da edição e em cada página do documento. Tipologia, pavimento e área saem dos formulários, listas, pesquisa e seletores das unidades; valores antigos permanecem armazenados e são preservados ao editar os campos atuais. Bases legadas mantêm seus rótulos para permitir a seleção correta.
 
 Cada unidade tem uma tabela própria. Editar ambientes e seus itens em uma tabela legível, com campos definidos de descrição/material/acabamento conforme os dados existentes. Adicionar e excluir linhas/ambientes com nomes claros, estados vazios úteis e confirmação interna para exclusões de conteúdo. Salvar explicitamente; preservar rascunhos durante a sessão do navegador, inclusive ao navegar, voltar e recarregar. O armazenamento é separado por usuário e empreendimento, e sua restauração depende do cadastro autorizado retornado pelo servidor. Se a fonte mudou, manter o rascunho em conflito para revisão explícita. Descartar alterações, inclusive ao confirmar a saída de guia ou módulo, remove os rascunhos da sessão antes da navegação. Falhas de armazenamento mostram um aviso para salvar antes de sair; não utilizar diálogos nativos do navegador.
 
@@ -55,7 +55,7 @@ O seletor terá Manual do Proprietário, Manual do Síndico e Tabelas de acabame
 
 Reutilizar a mesma experiência A4: sumário/pesquisa, navegação de página, zoom, ajuste à página/largura, contínuo/página única, Visualizar, Modo edição, pendências, informações da seção, Gerar PDF e Histórico. Módulos opcionais do manual não se aplicam à tabela.
 
-O PDF da tabela é independente: identificação da unidade, ambientes, itens e paginação. Não incluir capítulos, checklist ou sistemas dos manuais. Reutilizar identidade visual, fontes com acentos, paginação, repetição de cabeçalho das tabelas e renderização SVG/PDF. Não cortar linhas extensas ou inserir dados de outra unidade.
+O PDF da tabela é independente e usa A4 em paisagem em todas as folhas, tanto na prévia quanto no arquivo emitido. Contém somente a tabela, organizada por ambientes e grupos de itens. Remover páginas de capa, sumário e identificação separada; o cabeçalho de cada folha identifica empreendimento, torre/bloco e número da unidade. No menu da prévia permanece somente Tabela de acabamentos. Reutilizar identidade visual, fontes com acentos, paginação, repetição de cabeçalho das tabelas e renderização SVG/PDF. Não cortar linhas extensas ou inserir dados de outra unidade. Os manuais do proprietário e síndico permanecem em retrato.
 
 Prontidão depende da identificação, conteúdo completo e aprovação da própria tabela. As tabelas deixam de bloquear a emissão do Manual do Proprietário e não integram suas páginas. PDFs antigos permanecem no histórico.
 
@@ -65,7 +65,7 @@ Emissão cria uma revisão imutável com identificação e conteúdo da unidade 
 
 Oferecer Manual do Proprietário, Manual do Síndico e Unidades. Os dois primeiros mantêm os documentos publicados e seus downloads. Unidades mostra todas as unidades dos empreendimentos autorizados, inclusive as que não têm PDF.
 
-Mostrar empreendimento, torre/bloco, número, tipologia, estado da tabela e situação da emissão. Separar “Pendente de emissão”, “Em validação”, “Emitida” e “Atualização pendente” segundo tabela, revisões e publicação. Pesquisa por empreendimento/unidade e filtros de situação ajudam a localizar pendências. Contagens correspondem ao cadastro autorizado, sem usar mocks.
+Mostrar empreendimento, torre/bloco, número, estado da tabela e situação da emissão. Separar “Pendente de emissão”, “Em validação”, “Emitida” e “Atualização pendente” segundo tabela, revisões e publicação. Pesquisa por empreendimento/unidade e filtros de situação ajudam a localizar pendências. Contagens correspondem ao cadastro autorizado, sem usar mocks.
 
 Abrir prévia leva à unidade correta em Emitir PDF. PDF publicado oferece visualizar/baixar; ausência de publicação oferece elaborar/emitir conforme permissão. Uma publicação anterior continua disponível quando a fonte mudou, com aviso claro de atualização pendente.
 
@@ -91,10 +91,10 @@ Diálogos possuem título, descrição, foco inicial adequado, retorno de foco, 
 
 1. Os sete controles removidos não aparecem e a ordem das guias é a definida.
 2. Envio por botão e arraste usa a pasta aberta; pasta vazia persiste após recarregar. Sucesso parcial, nova tentativa e exclusão com falha mantêm dados consistentes. Nenhum diálogo nativo de confirmação nestes fluxos.
-3. Duas unidades de mesma tipologia em torres distintas têm conteúdo, revisão e PDF independentes. Cadastro duplicado e seleção incompatível são rejeitados.
+3. Cadastro e edição mostram apenas número e torre/bloco; salvar esses campos preserva os dados antigos omitidos. Duas unidades com mesmo número em torres distintas têm conteúdo, revisão e PDF independentes. Cadastro duplicado e seleção incompatível são rejeitados.
 4. Base antiga continua acessível e sua cópia para unidade não copia aprovação.
 5. Alterações invalidam aprovação; autor não aprova a fonte; revisão antiga não pode ser publicada como atual. Usuário de outra organização não acessa cadastro, fonte ou arquivo.
-6. Prévia e PDF da unidade usam a mesma paginação e conteúdo, com acentos e identificação. Só conteúdo aprovado entra no PDF oficial.
+6. Prévia e PDF da unidade usam a mesma paginação em paisagem e contêm somente a tabela, sem capa, sumário ou página de identificação. O menu possui uma única seção. Empreendimento e unidade estão no cabeçalho de todas as folhas, inclusive com identificações extensas; acentos e edição do ambiente/grupo correto são preservados. Só conteúdo aprovado entra no PDF oficial.
 7. Todas as unidades cadastradas aparecem em Manuais, emitidas ou pendentes. Publicações coexistem entre unidades e a situação muda quando a fonte é alterada.
 8. Manuais proprietário/síndico e links já existentes continuam operando; tabelas pendentes não impedem a emissão dos manuais.
 

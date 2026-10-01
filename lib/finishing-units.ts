@@ -80,8 +80,6 @@ async function audit(tx: Transaction, context: AccessContext, action: string, me
 export async function saveDevelopmentUnit(developmentId: string, input: UnitInput): Promise<FinishingUnitSummary> {
   const context = await requireDevelopmentAccess(developmentId)
   if (!canEditContent(context.developmentRole)) throw new FinishingContentError("Você não tem permissão para cadastrar unidades", 403)
-  let values: ReturnType<typeof normalizeUnitInput>
-  try { values = normalizeUnitInput(input) } catch (error) { throw new FinishingContentError(error instanceof Error ? error.message : "Unidade inválida", 400) }
   return db.transaction(async tx => {
     const development = (await tx.select().from(developments).where(and(eq(developments.id, developmentId), eq(developments.organizationId, context.organization.id))).for("update"))[0]
     if (!development) throw new FinishingContentError("Empreendimento não encontrado", 404)
@@ -89,6 +87,8 @@ export async function saveDevelopmentUnit(developmentId: string, input: UnitInpu
     const existing = input.id ? units.find(unit => unit.id === input.id) : undefined
     if (input.id && !existing) throw new FinishingContentError("Unidade não encontrada neste empreendimento", 404)
     if (existing && input.expectedRevision !== existing.revision) throw new FinishingContentError("Esta identificação mudou. Recarregue a unidade antes de salvar.", 409)
+    let values: ReturnType<typeof normalizeUnitInput>
+    try { values = normalizeUnitInput(input, existing) } catch (error) { throw new FinishingContentError(error instanceof Error ? error.message : "Unidade inválida", 400) }
     const duplicate = units.find(unit => unit.id !== existing?.id && normalizedUnitKey(unit.tower, unit.number) === normalizedUnitKey(values.tower, values.number))
     if (duplicate) throw new FinishingContentError("Já existe uma unidade com este número nesta torre ou bloco.", 409)
     if (existing && Object.entries(values).every(([key, value]) => existing[key as keyof UnitRow] === value)) return summary(context, development, existing, tx)

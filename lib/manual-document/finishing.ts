@@ -2,12 +2,12 @@ import { emptyFinishingData, finishingGroups, finishingProblems, unitLabel } fro
 import type { DevelopmentUnit, FinishingTable } from "@/lib/finishing-types"
 import { resolveManualIdentity } from "@/lib/manual-identity"
 import { finishingTableBlocks } from "./build"
-import type { ManualDocument, ManualPreview, ManualSection } from "./types"
+import type { ManualBlock, ManualDocument, ManualPreview, ManualSection } from "./types"
 
 export type FinishingDocumentSource = { developmentId: string; name: string; organization: { name: string; logo?: string | null; metadata?: string | null }; data: Record<string, unknown>; unit: DevelopmentUnit; table: FinishingTable | null; revision: number; date: string }
 export function assessFinishingReadiness(source: FinishingDocumentSource): ManualPreview["readiness"] {
   const pending: string[] = []
-  if (!source.unit.number.trim() || !source.unit.typology.trim()) pending.push("Complete número e tipologia da unidade.")
+  if (!source.unit.number.trim()) pending.push("Complete o número da unidade.")
   if (!source.table) pending.push("Cadastre a tabela desta unidade.")
   else {
     pending.push(...finishingProblems(source.table.data))
@@ -27,22 +27,21 @@ export function buildFinishingDocument(source: FinishingDocumentSource, purpose:
     if (!grouped.has(environment)) grouped.set(environment, emptyFinishingData())
     grouped.get(environment)![group].push(row)
   }
-  const sections: ManualSection[] = [
-    { id: "capa", type: "cover", title: "Capa", validationStatus: "aprovado", renderPolicy: "metadata", blocks: [], children: [], editHref },
-    { id: "sumario", type: "toc", title: "Sumário", validationStatus: "aprovado", renderPolicy: "metadata", blocks: [], children: [] },
-    { id: "identificacao-unidade", type: "content", title: "Identificação da unidade", validationStatus: "aprovado", renderPolicy: "metadata", blocks: [{ type: "table", headers: ["Identificação", "Dados da unidade"], rows: [["Empreendimento", source.name], ["Torre ou bloco", unit.tower], ["Pavimento", unit.floor], ["Unidade", unit.number], ["Tipologia", unit.typology], ["Área", unit.area]].filter(([, value]) => value) }], children: [], editHref },
-    ...Array.from(grouped, ([environment, data], index): ManualSection => {
-      const environmentHref = editHref + "&ambiente=" + encodeURIComponent(environment)
-      const firstGroup = finishingGroups.find(group => data[group].length) ?? "ambientes"
-      const blocks = visible && table ? finishingGroups.flatMap(group => {
+  const firstGroup = finishingGroups.find(group => table?.data[group].length) ?? "ambientes"
+  const review = status === "aguardando_validacao" ? { reviewStatus: "aguardando_validacao" as const } : {}
+  const blocks: ManualBlock[] = visible && table ? Array.from(grouped, ([environment, data]): ManualBlock[] => {
+    const environmentHref = editHref + "&ambiente=" + encodeURIComponent(environment)
+    const environmentGroup = finishingGroups.find(group => data[group].length) ?? "ambientes"
+    return [
+      { type: "heading", text: environment.toLocaleUpperCase("pt-BR"), level: 3, editHref: environmentHref + "&grupo=" + environmentGroup, ...review },
+      ...finishingGroups.flatMap(group => {
         if (!data[group].length) return []
         const groupData = { ...emptyFinishingData(), [group]: data[group] }
-        return finishingTableBlocks({ ...table, data: groupData }).filter(block => block.type !== "heading").map(block => ({ ...block, editHref: environmentHref + "&grupo=" + group, ...(status === "aguardando_validacao" ? { reviewStatus: "aguardando_validacao" as const } : {}) }))
-      }) : []
-      return { id: "ambiente-" + (index + 1), type: "content", number: String(index + 1), title: environment, validationStatus: status, renderPolicy: status === "aprovado" ? "approved" : status === "aguardando_validacao" ? "review" : "structure", blocks, children: [], editHref: environmentHref + "&grupo=" + firstGroup }
-    }),
-  ]
-  if (!grouped.size) sections.push({ id: "acabamentos", type: "content", title: "Tabela de acabamentos", validationStatus: status, renderPolicy: "structure", blocks: [], children: [], editHref })
+        return finishingTableBlocks({ ...table, data: groupData }).filter(block => block.type !== "heading").map(block => ({ ...block, editHref: environmentHref + "&grupo=" + group, ...review }))
+      }),
+    ]
+  }).flat() : []
+  const sections: ManualSection[] = [{ id: "acabamentos", type: "content", title: "Tabela de acabamentos", validationStatus: status, renderPolicy: status === "aprovado" ? "approved" : status === "aguardando_validacao" ? "review" : "structure", blocks, children: [], editHref: editHref + "&grupo=" + firstGroup }]
   const generatedAt = source.date + "T12:00:00.000Z"
-  return { schemaVersion: 1, metadata: { developmentId: source.developmentId, developmentName: source.name, organizationName: source.organization.name, organizationLogo: source.organization.logo, manualType: "acabamentos", unitId: unit.id, unitLabel: unitLabel(unit), title: "Tabela de acabamentos · " + unitLabel(unit), revision: source.revision, date: source.date, generatedAt, purpose }, identity: resolveManualIdentity(source.data.identity ?? source.data.brand, source.name, source.organization.metadata), sections, attachments: [] }
+  return { schemaVersion: 1, metadata: { developmentId: source.developmentId, developmentName: source.name, organizationName: source.organization.name, organizationLogo: source.organization.logo, manualType: "acabamentos", pageOrientation: "landscape", unitId: unit.id, unitLabel: unitLabel(unit), title: "Tabela de acabamentos · " + unitLabel(unit), revision: source.revision, date: source.date, generatedAt, purpose }, identity: resolveManualIdentity(source.data.identity ?? source.data.brand, source.name, source.organization.metadata), sections, attachments: [] }
 }

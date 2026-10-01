@@ -3,7 +3,6 @@ import test from "node:test"
 import { PDFDocument } from "pdf-lib"
 import { emptyFinishingData, finishingProblems, normalizeFinishingData, normalizeUnitInput, normalizedUnitKey } from "../lib/finishing-content"
 import { assessFinishingReadiness, buildFinishingDocument, type FinishingDocumentSource } from "../lib/manual-document/finishing"
-import { flattenSections } from "../lib/manual-document/types"
 import { paginateManualDocument, REVIEW_TEXT_COLOR } from "../lib/manual-document/paginate"
 import { renderManualPdf } from "../lib/manual-document/pdf"
 
@@ -33,19 +32,29 @@ test("finishing drafts can contain incomplete rows but submission requires popul
   assert.throws(() => normalizeFinishingData({ ambientes: [{ id: "a" }, { id: "a" }] }), /duplicada/)
   assert.throws(() => normalizeFinishingData({ ambientes: [{ id: "a", ambiente: 123 }] }), /inválido/)
 })
-test("standalone finishing identifies its exact unit and edit links retain unit and environment", () => {
+test("standalone finishing contains only its landscape table and identifies its exact unit", () => {
   const document = buildFinishingDocument(source())
   const contents = JSON.stringify(document.sections)
   assert.equal(document.metadata.manualType, "acabamentos")
   assert.equal(document.metadata.unitId, "unit-real-uuid")
+  assert.equal(document.metadata.pageOrientation, "landscape")
+  assert.equal(document.metadata.unitLabel, "Torre A · Unidade 201")
+  assert.deepEqual(document.sections.map(section => [section.id, section.type, section.title]), [["acabamentos", "content", "Tabela de acabamentos"]])
+  assert.equal(document.sections[0].children.length, 0)
   assert.ok(document.metadata.title.includes("201"))
   assert.ok(contents.includes("ACABAMENTO_ÁRVORE"))
   assert.ok(!contents.includes("MANUAL_FORA_DA_TABELA"))
-  const environment = document.sections.find(section => section.title === "Cozinha")!
+  assert.ok(!contents.includes("Tipo Á"))
+  assert.ok(!contents.includes("70,40"))
+  assert.ok(!contents.includes("2º"))
+  const environment = document.sections[0].blocks.find(block => block.type === "heading" && block.text === "COZINHA")!
   const url = new URL(environment.editHref!, "https://test.invalid")
   assert.equal(url.searchParams.get("unidade"), "unit-real-uuid")
   assert.equal(url.searchParams.get("ambiente"), "Cozinha")
   assert.deepEqual(assessFinishingReadiness(source()).blocking, [])
+  const minimal = source()
+  minimal.unit.typology = minimal.unit.floor = minimal.unit.area = ""
+  assert.deepEqual(assessFinishingReadiness(minimal).blocking, [])
 })
 test("source clicks open the populated group and exact environment when no general environment row exists", async () => {
   const environment = "Cozinha & Área de serviço"
@@ -56,11 +65,15 @@ test("source clicks open the populated group and exact environment when no gener
       ? [{ id: "material-only", ambiente: environment, material: marker, aplicacao: "Piso" }]
       : [{ id: "hydraulic-only", ambiente: environment, loucaCuba: marker }] }
     const document = buildFinishingDocument(input)
-    const section = document.sections.find(section => section.title === environment)!
+    const section = document.sections[0]
+    const heading = section.blocks.find(block => block.type === "heading" && block.text === environment.toLocaleUpperCase("pt-BR"))!
     const layout = await paginateManualDocument(document)
     const command = layout.pages.flatMap(page => page.commands).find(command => command.type === "text" && command.text === marker)
     assert.ok(command && command.type === "text", "The selected source text must actually be rendered")
-    for (const href of [section.editHref, command.editHref]) {
+    const sectionUrl = new URL(section.editHref!, "https://test.invalid")
+    assert.equal(sectionUrl.searchParams.get("grupo"), group)
+    assert.equal(sectionUrl.searchParams.get("ambiente"), null)
+    for (const href of [heading.editHref, command.editHref]) {
       const url = new URL(href!, "https://test.invalid")
       assert.equal(url.pathname, "/empreendimentos/development")
       assert.equal(url.searchParams.get("modulo"), "elaboracao")
@@ -77,7 +90,7 @@ test("environment topics prefer general rows while each source table retains its
   const input = source()
   input.table!.data.materiais = [{ id: "material", ambiente: "Cozinha", material: "MATERIAL_GROUP", aplicacao: "Piso" }]
   const document = buildFinishingDocument(input)
-  const section = document.sections.find(section => section.title === "Cozinha")!
+  const section = document.sections[0]
   assert.equal(new URL(section.editHref!, "https://test.invalid").searchParams.get("grupo"), "ambientes")
   const layout = await paginateManualDocument(document)
   for (const [marker, group] of [["ACABAMENTO_ÁRVORE", "ambientes"], ["MATERIAL_GROUP", "materiais"]]) {
@@ -107,9 +120,16 @@ test("long finishing tables use the same Unicode page commands and exported PDF 
   const document = buildFinishingDocument(input)
   const layout = await paginateManualDocument(document)
   assert.ok(layout.pages.length > 4)
-  assert.ok(flattenSections(document.sections).some(section => section.title === "Cozinha"))
+  assert.equal(document.sections.length, 1)
   assert.ok(layout.pages.flatMap(page => page.commands).some(command => command.type === "text" && command.text.includes("São João")))
   const pdf = await PDFDocument.load(await renderManualPdf(document, layout))
   assert.equal(pdf.getPageCount(), layout.pages.length)
+  for (const [index, page] of layout.pages.entries()) {
+    assert.ok(page.width > page.height)
+    assert.ok(page.commands.some(command => command.type === "text" && command.text.includes("Residencial São João")))
+    assert.ok(page.commands.some(command => command.type === "text" && command.text.includes("Unidade 201")))
+    assert.equal(pdf.getPage(index).getWidth(), page.width)
+    assert.equal(pdf.getPage(index).getHeight(), page.height)
+  }
   assert.equal(pdf.getTitle(), "Tabela de acabamentos · Torre A · Unidade 201 · Residencial São João")
 })
