@@ -43,7 +43,7 @@ export async function getPlatformAiIntegration(){
     testedAt:platformIntegrations.testedAt,
     config:platformIntegrations.config,
     updatedAt:platformIntegrations.updatedAt,
-  }).from(platformIntegrations).limit(1))[0]
+  }).from(platformIntegrations).where(eq(platformIntegrations.provider,"openai")).limit(1))[0]
   if(!row)return null
   return {
     provider:row.provider,
@@ -126,8 +126,8 @@ export async function removePlatformAiIntegration():Promise<PlatformActionResult
   try{
     const context=await requirePlatformManager()
     await consumeRateLimit("platform-ai-remove:"+context.user.id,{max:10,windowSeconds:3600})
-    const rows=await db.select({id:platformIntegrations.id,provider:platformIntegrations.provider,config:platformIntegrations.config}).from(platformIntegrations)
-    await db.delete(platformIntegrations)
+    const rows=await db.select({id:platformIntegrations.id,provider:platformIntegrations.provider,config:platformIntegrations.config}).from(platformIntegrations).where(eq(platformIntegrations.provider,"openai"))
+    await db.delete(platformIntegrations).where(eq(platformIntegrations.provider,"openai"))
     for(const row of rows)await recordAudit({organizationId:"platform",actorId:context.user.id,action:"platform_ai.removed",entityType:"platform_integration",entityId:row.id,metadata:{provider:row.provider,model:(row.config as {model?:string})?.model??null}})
     revalidatePath("/gerenciador")
     return {ok:true,message:"Integração OpenAI removida."}
