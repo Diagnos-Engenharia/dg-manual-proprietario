@@ -7,12 +7,8 @@ import { db } from "@/lib/db"
 import { platformIntegrations } from "@/lib/db/schema"
 import { requirePlatformManager } from "@/lib/organization"
 
-const providers=["openai","google_ai"] as const
-export type PlatformAiProvider=typeof providers[number]
-
-function assertProvider(value:string): asserts value is PlatformAiProvider{
-  if(!providers.includes(value as PlatformAiProvider))throw new Error("Provedor de IA inválido")
-}
+export type PlatformAiProvider="openai"
+export type PlatformActionResult={ok:true;message:string}|{ok:false;message:string}
 
 function encryptionKey(){
   const secret=process.env.INTEGRATION_ENCRYPTION_KEY||process.env.BETTER_AUTH_SECRET
@@ -34,58 +30,96 @@ function unseal(payload:string){
   return Buffer.concat([decipher.update(body),decipher.final()]).toString("utf8")
 }
 
+function failure(error:unknown,fallback:string):PlatformActionResult{
+  return {ok:false,message:error instanceof Error&&error.message?error.message:fallback}
+}
+
 export async function getPlatformAiIntegration(){
   await requirePlatformManager()
-  const rows=await db.select({provider:platformIntegrations.provider,status:platformIntegrations.status,testedAt:platformIntegrations.testedAt,config:platformIntegrations.config,updatedAt:platformIntegrations.updatedAt})
-    .from(platformIntegrations).limit(1)
-  const row=rows[0]
-  return row?{provider:row.provider as PlatformAiProvider,status:row.status,testedAt:row.testedAt?.toISOString()??null,updatedAt:row.updatedAt.toISOString(),config:row.config as {model?:string}}:null
-}
-
-export async function savePlatformAiIntegration(input:{provider:PlatformAiProvider;apiKey:string;model:string}){
-  const context=await requirePlatformManager()
-  assertProvider(input.provider)
-  const apiKey=input.apiKey.trim()
-  const model=input.model.trim()
-  if(!model)throw new Error("Informe o modelo que será utilizado")
-  const existing=await db.select().from(platformIntegrations).limit(1)
-  if(!apiKey&&!existing[0])throw new Error("Informe a chave da API")
-  const encryptedKey=apiKey?seal(apiKey):existing[0].encryptedKey
-  if(existing[0]){
-    await db.update(platformIntegrations).set({provider:input.provider,encryptedKey,config:{model},status:"saved",testedAt:null,updatedBy:context.user.id,updatedAt:new Date()}).where(eq(platformIntegrations.id,existing[0].id))
-  }else{
-    await db.insert(platformIntegrations).values({id:crypto.randomUUID(),provider:input.provider,encryptedKey,config:{model},status:"saved",updatedBy:context.user.id})
+  const row=(await db.select({
+    provider:platformIntegrations.provider,
+    status:platformIntegrations.status,
+    testedAt:platformIntegrations.testedAt,
+    config:platformIntegrations.config,
+    updatedAt:platformIntegrations.updatedAt,
+  }).from(platformIntegrations).limit(1))[0]
+  if(!row)return null
+  return {
+    provider:row.provider,
+    status:row.status,
+    testedAt:row.testedAt?.toISOString()??null,
+    updatedAt:row.updatedAt.toISOString(),
+    config:row.config as {model?:string},
   }
-  revalidatePath("/gerenciador")
-  return {ok:true}
 }
 
-export async function testPlatformAiIntegration(){
-  await requirePlatformManager()
-  const rows=await db.select().from(platformIntegrations).limit(1)
-  const row=rows[0]
-  if(!row)throw new Error("Configure a API antes de testar")
-  assertProvider(row.provider)
-  const key=unseal(row.encryptedKey)
+export async function savePlatformAiIntegration(input:{apiKey:string;model:string}):Promise<PlatformActionResult>{
   try{
-    const target=row.provider==="openai"?"https://api.openai.com/v1/models":"https://generativelanguage.googleapis.com/v1beta/models"
-    const headers=new Headers()
-    if(row.provider==="openai")headers.set("Authorization","Bearer "+key)
-    else headers.set("x-goog-api-key",key)
-    const response=await fetch(target,{headers,cache:"no-store",signal:AbortSignal.timeout(8000)})
-    const ok=response.ok
-    await db.update(platformIntegrations).set({status:ok?"verified":"error",testedAt:new Date(),updatedAt:new Date()}).where(eq(platformIntegrations.id,row.id))
+    const context=await requirePlatformManager()
+    const apiKey=input.apiKey.trim()
+    const model=input.model.trim()
+    if(!model)throw new Error("Informe o modelo da OpenAI que será utilizado")
+    const existing=(await db.select().from(platformIntegrations).limit(1))[0]
+    if(!apiKey&&!existing)throw new Error("Informe a chave da API da OpenAI")
+    if(!apiKey&&existing?.provider!=="openai")throw new Error("Informe uma chave da OpenAI para substituir a integração atual")
+    const encryptedKey=apiKey?seal(apiKey):existing!.encryptedKey
+    if(existing){
+      await db.update(platformIntegrations).set({
+        provider:"openai",
+        encryptedKey,
+        config:{model},
+        status:"saved",
+        testedAt:null,
+        updatedBy:context.user.id,
+        updatedAt:new Date(),
+      }).where(eq(platformIntegrations.id,existing.id))
+    }else{
+      await db.insert(platformIntegrations).values({
+        id:crypto.randomUUID(),
+        provider:"openai",
+        encryptedKey,
+        config:{model},
+        status:"saved",
+        updatedBy:context.user.id,
+      })
+    }
     revalidatePath("/gerenciador")
-    return {ok,message:ok?"Conexão validada.":"A API respondeu HTTP "+response.status+"."}
-  }catch{
-    await db.update(platformIntegrations).set({status:"error",testedAt:new Date(),updatedAt:new Date()}).where(eq(platformIntegrations.id,row.id))
-    revalidatePath("/gerenciador")
-    return {ok:false,message:"Não foi possível conectar ao provedor."}
-  }
+    return {ok:true,message:"Configuração da OpenAI salva. Teste a conexão antes de usar o pré-cadastro."}
+  }catch(error){return failure(error,"Não foi possível salvar a integração")}
 }
 
-export async function removePlatformAiIntegration(){
-  await requirePlatformManager()
-  await db.delete(platformIntegrations)
-  revalidatePath("/gerenciador")
+export async function testPlatformAiIntegration():Promise<PlatformActionResult>{
+  try{
+    await requirePlatformManager()
+    const row=(await db.select().from(platformIntegrations).limit(1))[0]
+    if(!row)throw new Error("Configure a OpenAI antes de testar")
+    if(row.provider!=="openai")throw new Error("A integração atual não é OpenAI. Salve novamente a configuração.")
+    const config=(row.config??{}) as {model?:string}
+    const model=config.model?.trim()
+    if(!model)throw new Error("Modelo da OpenAI não configurado")
+    const key=unseal(row.encryptedKey)
+    const response=await fetch("https://api.openai.com/v1/models/"+encodeURIComponent(model),{
+      headers:{Authorization:"Bearer "+key},
+      cache:"no-store",
+      signal:AbortSignal.timeout(10000),
+    })
+    if(!response.ok){
+      const payload=await response.json().catch(()=>({})) as {error?:{message?:string}}
+      await db.update(platformIntegrations).set({status:"error",testedAt:new Date(),updatedAt:new Date()}).where(eq(platformIntegrations.id,row.id))
+      revalidatePath("/gerenciador")
+      return {ok:false,message:payload.error?.message||`A OpenAI respondeu HTTP ${response.status}. Verifique a chave e o modelo.`}
+    }
+    await db.update(platformIntegrations).set({status:"verified",testedAt:new Date(),updatedAt:new Date()}).where(eq(platformIntegrations.id,row.id))
+    revalidatePath("/gerenciador")
+    return {ok:true,message:`Conexão validada. A chave possui acesso ao modelo ${model}.`}
+  }catch(error){return failure(error,"Não foi possível conectar à OpenAI")}
+}
+
+export async function removePlatformAiIntegration():Promise<PlatformActionResult>{
+  try{
+    await requirePlatformManager()
+    await db.delete(platformIntegrations)
+    revalidatePath("/gerenciador")
+    return {ok:true,message:"Integração OpenAI removida."}
+  }catch(error){return failure(error,"Não foi possível remover a integração")}
 }
