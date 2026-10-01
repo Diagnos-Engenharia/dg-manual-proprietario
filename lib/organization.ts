@@ -12,6 +12,8 @@ export type MemberStatus = "active" | "suspended" | "removed"
 export async function requireAuthenticatedUser() {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) throw new Error("Não autenticado")
+  const profile=(await db.select({accessStatus:userTable.accessStatus}).from(userTable).where(eq(userTable.id,session.user.id)).limit(1))[0]
+  if(profile?.accessStatus==="disabled")throw new Error("Conta inativa")
   return session.user
 }
 
