@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   if (!row[0]) return NextResponse.json({ error: "Empreendimento não encontrado" }, { status: 404 })
   const data = (row[0].data ?? {}) as Record<string, unknown>
   const systems = selectManualSystems(data, manualType)
-  const files = await db.select({ name: databookFiles.name, pathname: databookFiles.pathname, sizeBytes: databookFiles.sizeBytes }).from(databookFiles).where(eq(databookFiles.developmentId, body.developmentId))
+  const files = await db.select({ id: databookFiles.id, name: databookFiles.name, sizeBytes: databookFiles.sizeBytes }).from(databookFiles).where(eq(databookFiles.developmentId, body.developmentId))
   const finishing = manualType === "proprietario" ? await db.select().from(finishingTables).where(and(eq(finishingTables.developmentId, body.developmentId), eq(finishingTables.organizationId, context.organization.id))) : []
   const readiness = assessManualReadiness(data, manualType, finishing.length)
   const blocking: string[] = [...readiness.blocking]
