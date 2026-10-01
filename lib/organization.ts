@@ -17,20 +17,23 @@ export async function requireAuthenticatedUser() {
 
 export async function getPlatformUser() {
   const current = await requireAuthenticatedUser()
-  const rows = await db.select({ platformRole: userTable.platformRole }).from(userTable).where(eq(userTable.id,current.id)).limit(1)
-  return { user: current, platformRole: rows[0]?.platformRole as PlatformRole | null | undefined }
+  const [profile,legacyOwner] = await Promise.all([
+    db.select({ platformRole: userTable.platformRole }).from(userTable).where(eq(userTable.id,current.id)).limit(1),
+    db.select({ id:members.id }).from(members).where(and(eq(members.userId,current.id),eq(members.role,"owner"),eq(members.status,"active"))).limit(1),
+  ])
+  const platformRole = profile[0]?.platformRole as PlatformRole | null | undefined
+  return { user: current, platformRole, isManager: platformRole === "manager" || Boolean(legacyOwner[0]) }
 }
 
 export async function requirePlatformManager() {
   const context = await getPlatformUser()
-  if (context.platformRole !== "manager") throw new Error("Acesso restrito ao Gerenciador")
+  if (!context.isManager) throw new Error("Acesso restrito ao Gerenciador")
   return { ...context, platformRole: "manager" as const }
 }
 
 export async function isCurrentUserPlatformManager() {
   try {
-    const context = await getPlatformUser()
-    return context.platformRole === "manager"
+    return (await getPlatformUser()).isManager
   } catch {
     return false
   }
