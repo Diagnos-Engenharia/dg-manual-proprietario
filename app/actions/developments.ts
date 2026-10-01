@@ -175,8 +175,8 @@ export async function listDevelopmentHistory(developmentId: string) {
     createdAt: auditLogs.createdAt,
     actorName: user.name,
     actorEmail: user.email,
-  }).from(auditLogs).innerJoin(user, eq(auditLogs.actorId, user.id))
+  }).from(auditLogs).leftJoin(user, eq(auditLogs.actorId, user.id))
     .where(and(eq(auditLogs.organizationId, context.organization.id), or(eq(auditLogs.entityId, developmentId), sql`${auditLogs.metadata} ->> 'developmentId' = ${developmentId}`)))
     .orderBy(desc(auditLogs.createdAt)).limit(200)
-  return rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }))
+  return rows.map((row) => ({ ...row, actorName:row.actorName??"Usuário removido", actorEmail:row.actorEmail??"", createdAt: row.createdAt.toISOString() }))
 }
