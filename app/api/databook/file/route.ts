@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
   try {
     const owned = await db.select({ pathname: databookFiles.pathname, name: databookFiles.name,developmentId:databookFiles.developmentId }).from(databookFiles).innerJoin(developments, eq(databookFiles.developmentId, developments.id)).where(and(eq(databookFiles.pathname, pathname), eq(developments.id,databookFiles.developmentId))).limit(1)
     if (!owned[0]) return NextResponse.json({ error: "Arquivo não encontrado" }, { status: 404 })
-    await requireDevelopmentAccess(owned[0].developmentId)
+    try{await requireDevelopmentAccess(owned[0].developmentId)}catch{return NextResponse.json({ error: "Arquivo não encontrado" }, { status: 404 })}
     const result = await get(pathname, { access: "private", ifNoneMatch: request.headers.get("if-none-match") ?? undefined })
     if (!result) return new NextResponse("Arquivo não encontrado", { status: 404 })
     if (result.statusCode === 304) return new NextResponse(null, { status: 304, headers: { ETag: result.blob.etag, "Cache-Control": "private, no-cache" } })
