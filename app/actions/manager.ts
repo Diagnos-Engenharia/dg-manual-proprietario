@@ -15,6 +15,7 @@ import {
   user,
 } from "@/lib/db/schema"
 import { recordAudit, requirePlatformManager } from "@/lib/organization"
+import { consumeRateLimit } from "@/lib/security/rate-limit"
 
 const hashToken=(token:string)=>createHash("sha256").update(token).digest("hex")
 
@@ -99,6 +100,7 @@ export async function listManagedOrganizations(){
 export async function createManagedOrganization(input:{name:string}):Promise<ManagerActionResult<{id:string}>>{
   try{
     const context=await requirePlatformManager()
+    await consumeRateLimit("manager-create-org:"+context.user.id,{max:20,windowSeconds:3600})
     const name=input.name.trim()
     if(name.length<2)throw new Error("Informe o nome da construtora")
     const id=crypto.randomUUID()
@@ -122,6 +124,7 @@ export async function createManagerAccess(input:{
 }):Promise<ManagerActionResult<{mode:"linked"|"invited";path?:string}>>{
   try{
     const context=await requirePlatformManager()
+    await consumeRateLimit("manager-create-access:"+context.user.id,{max:50,windowSeconds:3600})
     const email=input.email.trim().toLowerCase()
     const name=input.name.trim()
     if(!name||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new Error("Informe nome e e-mail válidos")
@@ -190,6 +193,7 @@ export async function managerUpdateMemberAccess(input:{
 }):Promise<ManagerActionResult>{
   try{
     const context=await requirePlatformManager()
+    await consumeRateLimit("manager-update-access:"+context.user.id,{max:120,windowSeconds:3600})
     const person=(await db.select({id:members.id}).from(members)
       .where(and(eq(members.id,input.memberId),eq(members.organizationId,input.organizationId))).limit(1))[0]
     if(!person)throw new Error("Usuário não encontrado")
@@ -210,6 +214,7 @@ export async function managerUpdateMemberAccess(input:{
 export async function managerSetUserAccess(input:{userId:string;status:"active"|"disabled"}):Promise<ManagerActionResult>{
   try{
     const context=await requirePlatformManager()
+    await consumeRateLimit("manager-account-status:"+context.user.id,{max:120,windowSeconds:3600})
     if(input.userId===context.user.id&&input.status==="disabled")throw new Error("O Gerenciador não pode desabilitar a própria conta")
     const profile=(await db.select({id:user.id,name:user.name,platformRole:user.platformRole}).from(user).where(eq(user.id,input.userId)).limit(1))[0]
     if(!profile)throw new Error("Usuário não encontrado")
@@ -242,6 +247,7 @@ export async function managerSetUserAccess(input:{userId:string;status:"active"|
 export async function managerDeleteMember(input:{organizationId:string;memberId:string}):Promise<ManagerActionResult>{
   try{
     const context=await requirePlatformManager()
+    await consumeRateLimit("manager-delete-member:"+context.user.id,{max:50,windowSeconds:3600})
     const person=(await db.select({userId:members.userId,email:user.email}).from(members)
       .innerJoin(user,eq(members.userId,user.id))
       .where(and(eq(members.id,input.memberId),eq(members.organizationId,input.organizationId))).limit(1))[0]
@@ -273,6 +279,7 @@ export async function managerDeleteMember(input:{organizationId:string;memberId:
 export async function deleteManagedOrganization(input:{organizationId:string}):Promise<ManagerActionResult>{
   try{
     const context=await requirePlatformManager()
+    await consumeRateLimit("manager-delete-org:"+context.user.id,{max:20,windowSeconds:3600})
     const company=(await db.select({id:organizations.id,name:organizations.name}).from(organizations).where(eq(organizations.id,input.organizationId)).limit(1))[0]
     if(!company)throw new Error("Construtora não encontrada")
     const [memberCount,developmentCount]=await Promise.all([
