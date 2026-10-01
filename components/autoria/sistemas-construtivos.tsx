@@ -225,7 +225,7 @@ function ValidationActions({developmentId,contextKey,section,label,role,status,c
   }
 
   const canSend=role==="editor"||role==="admin"
-  const canDecide=role==="validator"||role==="admin"
+  const canDecide=role==="admin"
   const showSend=canSend&&status!=="aguardando_validacao"&&status!=="aprovado"
   const showDecision=canDecide&&status==="aguardando_validacao"
   if(!showSend&&!showDecision&&!(comment&&status==="reprovado")&&!error)return null
