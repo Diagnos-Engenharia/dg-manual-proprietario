@@ -19,12 +19,9 @@ export async function requireAuthenticatedUser() {
 
 export async function getPlatformUser() {
   const current = await requireAuthenticatedUser()
-  const [profile,legacyOwner] = await Promise.all([
-    db.select({ platformRole: userTable.platformRole }).from(userTable).where(eq(userTable.id,current.id)).limit(1),
-    db.select({ id:members.id }).from(members).where(and(eq(members.userId,current.id),eq(members.role,"owner"),eq(members.status,"active"))).limit(1),
-  ])
+  const profile=await db.select({ platformRole: userTable.platformRole }).from(userTable).where(eq(userTable.id,current.id)).limit(1)
   const platformRole = profile[0]?.platformRole as PlatformRole | null | undefined
-  return { user: current, platformRole, isManager: platformRole === "manager" || Boolean(legacyOwner[0]) }
+  return { user: current, platformRole, isManager: platformRole === "manager" }
 }
 
 export async function requirePlatformManager() {
