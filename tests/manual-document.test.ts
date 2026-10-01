@@ -4,7 +4,7 @@ import { buildManualDocument, approvedHtmlBlocks, type BuildManualDocumentInput 
 import { flattenSections } from "@/lib/manual-document/types"
 import { assessManualReadiness } from "@/lib/completion"
 import { getChecklistItemScopes, type ChecklistItem } from "@/lib/mock-data"
-import type { ManualContentValidation } from "@/lib/manual-content"
+import { orderManualSystems, type ManualContentValidation } from "@/lib/manual-content"
 import { changedValidationContexts } from "@/lib/manual-document/invalidation"
 import { paginateManualDocument, REVIEW_TEXT_COLOR } from "@/lib/manual-document/paginate"
 import { renderManualPdf } from "@/lib/manual-document/pdf"
@@ -14,6 +14,56 @@ const validation = (id: string, section = "sistemas", status = "aprovado", scope
 const input = (data: Record<string, unknown>, validations: ManualContentValidation[] = []): BuildManualDocumentInput => ({ developmentId: "test", name: "Residencial São João", organization: { name: "Construtora Árvore", metadata: '{"primaryColor":"#123456"}' }, data, manualType: "proprietario", revision: 3, date: "2026-10-01", validations, finishing: [], files: [] })
 const find = (document: ReturnType<typeof buildManualDocument>, id: string) => flattenSections(document.sections).find(section => section.id === id)!
 const published = (document: ReturnType<typeof buildManualDocument>) => JSON.stringify(flattenSections(document.sections).map(section => section.blocks))
+
+test("technical catalog and document share scoped category order, editorial ordering and stable system identities", () => {
+  const checklist: ChecklistItem[] = [
+    { ...item("a"), category: "Estrutura" },
+    { ...item("b"), category: "Instalações" },
+    { ...item("z"), category: "Estrutura" },
+    { ...item("shared", ["unidade", "comum"]), category: "Estrutura" },
+    { ...item("common", ["comum"]), category: "Instalações" },
+    { ...item("not-selected"), status: "em_andamento" },
+    { ...item("no-scope"), scopes: [] },
+    { ...item("a"), category: "Estrutura", item: "Nome atualizado" },
+  ]
+  const data = { checklist, manuals: { proprietario: { editorial: { systemOrder: ["z", "b", "missing"] } }, sindico: { editorial: { systemOrder: ["common"] } } } }
+  const before = JSON.stringify(data)
+  const owner = orderManualSystems(data, "proprietario")
+  assert.deepEqual(owner.map(entry => entry.item.id), ["z", "a", "shared", "b"])
+  assert.equal(owner.find(entry => entry.item.id === "a")!.item.item, "Nome atualizado")
+  assert.deepEqual(owner.map(entry => entry.key), ["z::unidade", "a::unidade", "shared::unidade", "b::unidade"])
+  assert.deepEqual(orderManualSystems(data, "sindico").map(entry => entry.key), ["shared::comum", "common::comum"])
+  const systems = find(buildManualDocument(input(data)), "sistemas").children
+  assert.deepEqual(systems.map(section => section.id), owner.map(entry => "sistema-" + entry.item.id))
+  assert.deepEqual(systems.map(section => section.number), ["4.1", "4.2", "4.3", "4.4"])
+  assert.equal(JSON.stringify(data), before)
+})
+
+test("a missing checklist never inserts reference systems into the technical catalog or document", () => {
+  for (const data of [{}, { checklist: null }, { checklist: [] }]) {
+    assert.deepEqual(orderManualSystems(data, "proprietario"), [])
+    assert.deepEqual(orderManualSystems(data, "sindico"), [])
+    assert.deepEqual(find(buildManualDocument(input(data)), "sistemas").children, [])
+  }
+})
+
+test("checklist removal excludes technical content without erasing it; reactivation restores only its original scope", () => {
+  const data = { checklist: [item("existing"), item("shared", ["unidade", "comum"])], manuals: { proprietario: { sistemas: { "existing::unidade": "<p>CONTEUDO_PRESERVADO</p>" }, manutencao: { "existing::unidade": [{ task: "ATIVIDADE_PRESERVADA", frequency: "Anual", responsible: "Proprietário" }] } } } }
+  const validations = [validation("existing"), validation("existing", "manutencao")]
+  const removed = { ...data, checklist: data.checklist.map(entry => entry.id === "existing" ? { ...entry, status: "nao_aplicado" as const } : entry) }
+  assert.ok(!orderManualSystems(removed, "proprietario").some(entry => entry.item.id === "existing"))
+  assert.ok(!published(buildManualDocument(input(removed, validations))).includes("PRESERVAD"))
+  const restored = { ...removed, checklist: removed.checklist.map(entry => entry.id === "existing" ? { ...entry, status: "possui" as const, scopes: ["unidade", "comum"] as ("unidade" | "comum")[] } : entry) }
+  const owner = orderManualSystems(restored, "proprietario", validations).find(entry => entry.item.id === "existing")!
+  const common = orderManualSystems(restored, "sindico", validations).find(entry => entry.item.id === "existing")!
+  assert.ok(owner.html.includes("CONTEUDO_PRESERVADO"))
+  assert.equal(owner.maintenance[0].task, "ATIVIDADE_PRESERVADA")
+  assert.equal(common.html, "")
+  assert.deepEqual(common.maintenance, [])
+  assert.equal(common.descriptionStatus, "rascunho")
+  assert.equal(common.maintenanceStatus, "rascunho")
+  assert.ok(published(buildManualDocument(input(restored, validations))).includes("CONTEUDO_PRESERVADO"))
+})
 
 test("incomplete manuals preserve macrostructure and selected titles without leaking draft, waiting or rejected text", () => {
   const checklist = [item("draft"), item("waiting"), item("rejected"), item("common", ["comum"]), { ...item("removed"), status: "nao_aplicado" }]
@@ -209,9 +259,9 @@ test("drawing text links back to its own source, maintenance has its editor and 
   const commands = layout.pages.flatMap(page => page.commands).filter(command => command.type === "text")
   const description = commands.find(command => command.type === "text" && command.text === "DESCRICAO_ORIGEM")!
   assert.equal(description.sectionId, "sistema-unit")
-  assert.equal(new URL(description.editHref!, "https://test.invalid").searchParams.get("aba"), "sistemas")
+  assert.equal(new URL(description.editHref!, "https://test.invalid").searchParams.get("aba"), "textos")
   const activity = commands.find(command => command.type === "text" && command.text === "ATIVIDADE_ORIGEM")!
-  assert.equal(new URL(activity.editHref!, "https://test.invalid").searchParams.get("aba"), "sistemas")
+  assert.equal(new URL(activity.editHref!, "https://test.invalid").searchParams.get("aba"), "textos")
   assert.equal(new URL(activity.editHref!, "https://test.invalid").searchParams.get("conteudo"), "manutencao")
   assert.equal(new URL(activity.editHref!, "https://test.invalid").searchParams.get("item"), "unit::unidade")
   assert.ok(commands.filter(command => command.type === "text" && /^\d+ \/ \d+$/.test(command.text)).every(command => !command.sectionId && !command.editHref))

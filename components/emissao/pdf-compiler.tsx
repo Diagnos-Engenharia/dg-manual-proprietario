@@ -292,7 +292,7 @@ export function PdfCompiler({ developmentId, role }: { developmentId?: string; r
     if (id === "ficha") return base + "&modulo=informacoes"
     if (id === "cronograma" || id.startsWith("custom-")) return base + "&modulo=cronograma"
     if (id === "editorial") return base + "&modulo=elaboracao&aba=textos"
-    return base + "&modulo=elaboracao&aba=" + (id === "acabamentos" ? "acabamentos" : id === "checklist" ? "checklist" : "sistemas")
+    return base + "&modulo=elaboracao&aba=" + (id === "acabamentos" ? "acabamentos" : id === "checklist" ? "checklist" : "textos&secao=sistemas" + (id === "manutencao" ? "&conteudo=manutencao" : ""))
   }
 
   if (!developmentId) return <div className="rounded-lg border border-border p-8 text-center text-sm text-muted-foreground">Selecione um empreendimento para compor o manual.</div>

@@ -1,4 +1,4 @@
-import { checklistItems, checklistItemContextKey, checklistItemMatchesScope, getChecklistItemScopes, type ChecklistItem, type ChecklistScope, type MaintenanceItem, type ManualType } from "@/lib/mock-data"
+import { checklistItemContextKey, checklistItemMatchesScope, getChecklistItemScopes, type ChecklistItem, type ChecklistScope, type MaintenanceItem, type ManualType } from "@/lib/mock-data"
 
 export const optionalManualSectionIds = ["meio-ambiente", "uso-racional-agua", "telefones-uteis", "glossario"] as const
 export type ManualEditorialSettings = {
@@ -42,7 +42,7 @@ export function systemGuideline(item: ChecklistItem, scope: ChecklistScope): str
 
 export function selectManualSystems(data: Record<string, unknown>, manual: ManualType, validations: ManualContentValidation[] = []) {
   const scope = manualScope(manual)
-  const checklist = Array.isArray(data.checklist) ? data.checklist as ChecklistItem[] : checklistItems
+  const checklist = Array.isArray(data.checklist) ? data.checklist as ChecklistItem[] : []
   const content = (data.manuals as Partial<Record<ManualType, ManualContent>> | undefined)?.[manual] ?? {}
   const selected = Array.from(new Map(checklist.filter((item) => item.status === "possui" && checklistItemMatchesScope(item, scope)).map(item => [item.id, item])).values())
   return selected.map((item) => {
@@ -58,6 +58,21 @@ export function selectManualSystems(data: Record<string, unknown>, manual: Manua
       maintenanceStatus: manualValidationStatus(validations, key, "manutencao"),
     }
   })
+}
+
+/** Keep technical categories stable while applying editorial order inside them. */
+export function orderSystemEntries<T extends { item: { id: string; category: string } }>(systems: T[], systemOrder: string[] = []): T[] {
+  const priorities = new Map(systemOrder.map((id, index) => [id, index]))
+  const categories = Array.from(new Set(systems.map(system => system.item.category)))
+  return categories.flatMap(category => systems.filter(system => system.item.category === category).sort((first, second) =>
+    (priorities.get(first.item.id) ?? Number.MAX_SAFE_INTEGER) - (priorities.get(second.item.id) ?? Number.MAX_SAFE_INTEGER)))
+}
+
+/** Authoring and composition must use the same scoped selection and numbering. */
+export function orderManualSystems(data: Record<string, unknown>, manual: ManualType, validations: ManualContentValidation[] = []) {
+  const content = (data.manuals as Partial<Record<ManualType, ManualContent>> | undefined)?.[manual]
+  const order = content?.editorial?.systemOrder
+  return orderSystemEntries(selectManualSystems(data, manual, validations), Array.isArray(order) ? order.filter(id => typeof id === "string") : [])
 }
 
 export function htmlToLines(html: string): string[] {

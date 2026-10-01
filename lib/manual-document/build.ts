@@ -1,5 +1,5 @@
 import { type ChecklistScope, type ManualType, type TechnicalContact } from "@/lib/mock-data"
-import { htmlToLines, manualScope, manualValidationStatus, selectManualCommissioning, selectManualSystems, type ManualContent, type ManualContentValidation } from "@/lib/manual-content"
+import { htmlToLines, manualScope, manualValidationStatus, selectManualCommissioning, orderManualSystems, type ManualContent, type ManualContentValidation } from "@/lib/manual-content"
 import { resolveManualIdentity } from "@/lib/manual-identity"
 import type { ContentStatus, ManualAttachment, ManualBlock, ManualDocument, ManualSection } from "./types"
 
@@ -216,14 +216,7 @@ export function buildManualDocument(input: BuildManualDocumentInput, purpose: "p
   metadataSection.blocks = fichaRows.length ? [{ type: "table", headers: ["Informação", "Empreendimento"], rows: fichaRows, widths: [1.3, 2] }] : []
   metadataSection.renderPolicy = "metadata"
   metadataSection.validationStatus = fichaRows.length === 5 ? "aprovado" : fichaRows.length ? "rascunho" : "sem_conteudo"
-  const systems = selectManualSystems(input.data, input.manualType, input.validations)
-  const order = editorial.systemOrder ?? []
-  // Order changes only inside each original technical group; macrostructure is fixed.
-  const categories = Array.from(new Set(systems.map(system => system.item.category)))
-  const sortedSystems = categories.flatMap(category => systems.filter(system => system.item.category === category).sort((a, b) => {
-    const first = order.indexOf(a.item.id), second = order.indexOf(b.item.id)
-    return (first < 0 ? Number.MAX_SAFE_INTEGER : first) - (second < 0 ? Number.MAX_SAFE_INTEGER : second)
-  }))
+  const sortedSystems = orderManualSystems(input.data, input.manualType, input.validations)
   const maintenanceRows: string[][] = []
   const reviewMaintenance: ManualBlock[] = []
   const systemSections = sortedSystems.map((system, index): ManualSection => {
@@ -236,21 +229,21 @@ export function buildManualDocument(input: BuildManualDocumentInput, purpose: "p
       blocks.push(...rendered(descriptionBlocks, description))
     }
     if (visible(maintenance) && system.maintenance.length) {
-      const maintenanceHref = `${baseHref}?modulo=elaboracao&aba=sistemas${manualQuery}&conteudo=manutencao&item=${encodeURIComponent(system.key)}`
+      const maintenanceHref = `${baseHref}?modulo=elaboracao&aba=textos${manualQuery}&conteudo=manutencao&item=${encodeURIComponent(system.key)}`
       blocks.push(...rendered([{ type: "heading", text: "Manutenção e conservação", level: 3 }, { type: "maintenanceTable", headers: ["Periodicidade", "Atividade", "Responsável"], rows: system.maintenance.map(row => [row.frequency, row.task, row.responsible]), widths: [1, 2.6, 1.1] }], maintenance, maintenanceHref))
       if (maintenance === "aprovado") maintenanceRows.push(...system.maintenance.map(row => [system.item.item, row.frequency, row.task, row.responsible]))
       else reviewMaintenance.push(...rendered([{ type: "maintenanceTable", title: system.item.item, headers: ["Sistema", "Periodicidade", "Atividade", "Responsável"], rows: system.maintenance.map(row => [system.item.item, row.frequency, row.task, row.responsible]), widths: [1.4, 1, 2.6, 1.1] }], maintenance, maintenanceHref))
     }
-    return { id: `sistema-${system.item.id}`, type: "system", title: system.item.item, number: `4.${index + 1}`, validationStatus: combinedStatus([description, maintenance]), renderPolicy: blocks.some(block => block.reviewStatus) ? "review" : blocks.length ? "approved" : "structure", blocks, children: [], componentStatuses: [{ label: "Descrição técnica", status: description }, { label: "Manutenção", status: maintenance }], editHref: `${baseHref}?modulo=elaboracao&aba=sistemas${manualQuery}&item=${encodeURIComponent(system.key)}` }
+    return { id: `sistema-${system.item.id}`, type: "system", title: system.item.item, number: `4.${index + 1}`, validationStatus: combinedStatus([description, maintenance]), renderPolicy: blocks.some(block => block.reviewStatus) ? "review" : blocks.length ? "approved" : "structure", blocks, children: [], componentStatuses: [{ label: "Descrição técnica", status: description }, { label: "Manutenção", status: maintenance }], editHref: `${baseHref}?modulo=elaboracao&aba=textos${manualQuery}&item=${encodeURIComponent(system.key)}` }
   })
   byId.get("sistemas")!.children = systemSections
-  byId.get("sistemas")!.editHref = `${baseHref}?modulo=elaboracao&aba=sistemas${manualQuery}`
+  byId.get("sistemas")!.editHref = `${baseHref}?modulo=elaboracao&aba=textos${manualQuery}&secao=sistemas`
   byId.get("sistemas")!.validationStatus = combinedStatus(systemSections.map(value => value.validationStatus))
   const consolidated = byId.get("manutencao-tabela")!
   consolidated.blocks = [...(maintenanceRows.length ? [{ type: "maintenanceTable" as const, headers: ["Sistema", "Periodicidade", "Atividade", "Responsável"], rows: maintenanceRows, widths: [1.4, 1, 2.6, 1.1] }] : []), ...reviewMaintenance]
   consolidated.validationStatus = combinedStatus(systemSections.map(system => system.componentStatuses![1].status))
   consolidated.renderPolicy = reviewMaintenance.length ? "review" : maintenanceRows.length ? "approved" : "structure"
-  consolidated.editHref = `${baseHref}?modulo=elaboracao&aba=sistemas${manualQuery}&conteudo=manutencao`
+  consolidated.editHref = `${baseHref}?modulo=elaboracao&aba=textos${manualQuery}&conteudo=manutencao`
 
   const authoring = record(input.data.authoring)
   const contacts = (Array.isArray(authoring.contacts) ? authoring.contacts : []).map(value => record(value)).filter(value => value.kind === "projetista" || value.kind === "fornecedor").map(value => Object.fromEntries(["id", "kind", "name", "company", "discipline", "registration", "phone", "whatsapp", "email", "warranty", "nbr"].map(key => [key, text(value[key])]))) as TechnicalContact[]
