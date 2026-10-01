@@ -5,6 +5,7 @@ import { and, count, eq, inArray, or } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { db } from "@/lib/db"
 import {
+  account,
   developmentAssignments,
   developments,
   members,
@@ -254,7 +255,11 @@ export async function managerDeleteMember(input:{organizationId:string;memberId:
 
     const remaining=(await db.select({total:count()}).from(members).where(eq(members.userId,person.userId)))[0]
     const profile=(await db.select({platformRole:user.platformRole}).from(user).where(eq(user.id,person.userId)).limit(1))[0]
-    if(Number(remaining?.total??0)===0&&!profile?.platformRole)await db.delete(session).where(eq(session.userId,person.userId))
+    if(Number(remaining?.total??0)===0&&!profile?.platformRole){
+      await db.delete(session).where(eq(session.userId,person.userId))
+      await db.delete(account).where(eq(account.userId,person.userId))
+      await db.delete(user).where(eq(user.id,person.userId))
+    }
 
     await recordAudit({
       organizationId:input.organizationId,actorId:context.user.id,
