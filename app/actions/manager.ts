@@ -16,6 +16,7 @@ import {
 } from "@/lib/db/schema"
 import { recordAudit, requirePlatformManager } from "@/lib/organization"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
+import { cleanText } from "@/lib/security/input"
 
 const hashToken=(token:string)=>createHash("sha256").update(token).digest("hex")
 
@@ -101,8 +102,7 @@ export async function createManagedOrganization(input:{name:string}):Promise<Man
   try{
     const context=await requirePlatformManager()
     await consumeRateLimit("manager-create-org:"+context.user.id,{max:20,windowSeconds:3600})
-    const name=input.name.trim()
-    if(name.length<2)throw new Error("Informe o nome da construtora")
+    const name=cleanText(input.name,"Nome da construtora",160,2)
     const id=crypto.randomUUID()
     const slug=`${name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"")}-${id.slice(0,8)}`
     await db.insert(organizations).values({id,name,slug,metadata:JSON.stringify({
@@ -126,8 +126,8 @@ export async function createManagerAccess(input:{
     const context=await requirePlatformManager()
     await consumeRateLimit("manager-create-access:"+context.user.id,{max:50,windowSeconds:3600})
     const email=input.email.trim().toLowerCase()
-    const name=input.name.trim()
-    if(!name||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new Error("Informe nome e e-mail válidos")
+    const name=cleanText(input.name,"Nome do usuário",160)
+    if(email.length>320||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new Error("Informe um e-mail válido")
     const company=(await db.select({id:organizations.id}).from(organizations).where(eq(organizations.id,input.organizationId)).limit(1))[0]
     if(!company)throw new Error("Construtora não encontrada")
     const selected=input.role==="editor"?await ensureDevelopmentSelection(input.organizationId,input.developmentIds):[]
