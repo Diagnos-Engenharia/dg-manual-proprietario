@@ -92,7 +92,7 @@ export function ManagerCompanyCard({company,onFeedback}:{company:ManagedCompany;
         <div><CardTitle>{company.name}</CardTitle><p className="mt-1 text-xs text-muted-foreground">{company.developments.length} empreendimento(s) · {company.members.length} acesso(s)</p></div>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" onClick={()=>{setOpen(true);setInviteLink("")}}><UserPlus className="h-4 w-4"/>Adicionar usuário</Button>
-          <Button size="sm" variant="outline" disabled={busy||company.members.length>0} title={company.members.length>0?"Exclua todos os usuários antes de excluir a construtora":undefined} onClick={()=>void removeCompany()}><Trash2 className="h-4 w-4"/>Excluir</Button>
+          <Button size="sm" variant="outline" disabled={busy||company.members.length>0||company.developments.length>0} title={company.members.length>0?"Exclua todos os usuários antes de excluir a construtora":company.developments.length>0?"Exclua ou transfira os empreendimentos antes de excluir a construtora":undefined} onClick={()=>void removeCompany()}><Trash2 className="h-4 w-4"/>Excluir</Button>
         </div>
       </div>
     </CardHeader>
