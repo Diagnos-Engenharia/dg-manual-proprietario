@@ -1,11 +1,11 @@
 import Link from "next/link"
-import { notFound } from "next/navigation"
+import { notFound,redirect } from "next/navigation"
 import { ChevronLeft } from "lucide-react"
 import { AppShell } from "@/components/dashboard/app-shell"
 import { EmpreendimentoWorkspace } from "@/components/empreendimentos/empreendimento-workspace"
 import { statusLabels, formatDate } from "@/lib/mock-data"
 import { getDevelopment, listDatabookFiles } from "@/app/actions/developments"
-import { requireDevelopmentAccess } from "@/lib/organization"
+import { isCurrentUserPlatformManager,requireDevelopmentAccess } from "@/lib/organization"
 
 export const dynamic = "force-dynamic"
 
@@ -14,6 +14,7 @@ export default async function EmpreendimentoDetailPage({
 }: {
   params: Promise<{ id: string }>
 }) {
+  if(await isCurrentUserPlatformManager())redirect("/gerenciador")
   const { id } = await params
   const context = await requireDevelopmentAccess(id).catch(() => notFound())
   const persisted = await getDevelopment(id)
