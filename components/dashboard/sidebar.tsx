@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils"
 import { signOut } from "@/lib/auth-client"
 
 type Context={user:{name:string;email:string;image?:string|null};organization:{name:string;logo?:string|null;initials?:string;primaryColor?:string};role:"admin"|"admin_empreendimento"|"editor"|"validator"}
-const roleLabels={admin:"Administrador",admin_empreendimento:"Administrador do empreendimento",editor:"Editor",validator:"Validador"}
+const roleLabels={admin:"Administrador",admin_empreendimento:"Construtor",editor:"Construtor",validator:"Validador legado"}
 const primary=[{label:"Dashboard",icon:LayoutDashboard,href:"/"},{label:"Empreendimentos",icon:Building2,href:"/empreendimentos"},{label:"Manuais",icon:BookOpen,href:"/manuais"}]
 
 export function Sidebar({open=false,onClose}:{open?:boolean;onClose?:()=>void}){

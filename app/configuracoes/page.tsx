@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation"
-import { isGlobalAdmin,requireActiveMembership } from "@/lib/organization"
+import { isCurrentUserPlatformManager,isGlobalAdmin,requireActiveMembership } from "@/lib/organization"
 import { listOrganizationDevelopments,listOrganizationMembers } from "@/app/actions/organization"
 import { listIntegrationStatus } from "@/app/actions/integrations"
 import { listPublicApiKeys } from "@/app/actions/public-api-keys"
@@ -7,6 +7,7 @@ import { AppShell } from "@/components/dashboard/app-shell"
 import { SettingsWorkspace } from "@/components/settings/settings-workspace"
 
 export default async function SettingsPage(){
+  if(await isCurrentUserPlatformManager())redirect("/gerenciador")
   const context=await requireActiveMembership()
   if(!isGlobalAdmin(context.member.role))redirect("/")
   const [members,developments,integrations,apiKeys]=await Promise.all([listOrganizationMembers(),listOrganizationDevelopments(),listIntegrationStatus(),listPublicApiKeys()])
