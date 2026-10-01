@@ -27,7 +27,7 @@ Sistemas e manutenção continuam provenientes do checklist e separados por cont
 
 ### 2. DATABOOK
 
-A pasta aberta determina o destino. Remover o seletor Pasta do upload e o título redundante Todos os arquivos no painel direito. Alinhar a pesquisa ao início da navegação de pastas. A visão agregada Todos os arquivos continua no menu esquerdo; envios nessa visão vão para Arquivos gerais, informado na área de envio.
+A pasta aberta determina o destino e permanece selecionada após renomear. A seleção aguarda o cadastro carregar para usar a identificação persistida da pasta. Remover o seletor Pasta do upload e o título redundante Todos os arquivos no painel direito. Alinhar a pesquisa ao início da navegação de pastas. A visão agregada Todos os arquivos continua no menu esquerdo; envios nessa visão vão para Arquivos gerais, informado na área de envio.
 
 Exibir uma área superior: “Arraste arquivos ou clique para adicionar”, com destino visível. Permitir soltar arquivos também na área de conteúdo da pasta. O botão Adicionar arquivos usa o mesmo envio. Não iniciar upload a partir de arraste interno de um item da interface.
 
