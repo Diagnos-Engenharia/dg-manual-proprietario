@@ -16,8 +16,8 @@ export const runtime = "nodejs"
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    if (typeof developmentId !== "string" || !developmentId) return NextResponse.json({ error: "Empreendimento não informado" }, { status: 400 })
-    const developmentId = assertId(developmentId, "Empreendimento")
+    if (typeof body.developmentId !== "string" || !body.developmentId) return NextResponse.json({ error: "Empreendimento não informado" }, { status: 400 })
+    const developmentId = assertId(body.developmentId, "Empreendimento")
     const manualType = parseDocumentType(body.manualType)
     const unitId = manualType === "acabamentos" && typeof body.unitId === "string" ? assertId(body.unitId, "Unidade") : null
     const comment = typeof body.comment === "string" && body.comment.trim() ? cleanText(body.comment, "Comentário", 5000) : null
