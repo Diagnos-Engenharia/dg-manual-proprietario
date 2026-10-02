@@ -28,6 +28,9 @@ const memorial=read("app/api/memorial/process/route.ts")
 const memorialUpload=read("app/api/memorial/upload/route.ts")
 const brandUpload=read("app/api/brand/upload/route.ts")
 const databookUpload=read("app/api/databook/upload/route.ts")
+const databookService=read("lib/databook/service.ts")
+const databookTicket=read("lib/databook/ticket.ts")
+const databookStorage=read("lib/databook/storage.ts")
 const publicApi=read("lib/public-api.ts")
 const nextConfig=read("next.config.mjs")
 
@@ -48,14 +51,14 @@ check(!memorial.includes("generativelanguage.googleapis.com"),"Memorial processi
 check(memorial.includes("DADO NÃO CONFIÁVEL")&&memorial.includes('role:"system"'),"Memorial is explicitly treated as untrusted data with separated system instructions")
 check(memorial.includes("store:false")&&memorial.includes("data:application/pdf;base64,"),"OpenAI processing disables storage and uses an explicit PDF data URL")
 check(memorial.includes("consumeRateLimit"),"AI processing is rate limited")
-check(memorialUpload.includes('access:"private"')&&brandUpload.includes('access: "private"')&&databookUpload.includes('access: "private"'),"document and image uploads use private Blob storage")
-check(memorialUpload.includes("assertMemorialFile")&&brandUpload.includes("assertImageFile")&&databookUpload.includes("assertDatabookFile"),"upload routes validate content beyond filename extension")
+check(memorialUpload.includes('access:"private"')&&brandUpload.includes('access: "private"')&&databookStorage.includes('access: "private"'),"document and image uploads use private Blob storage")
+check(memorialUpload.includes("assertMemorialFile")&&brandUpload.includes("assertImageFile")&&databookUpload.includes("assertDatabookFile")&&databookTicket.includes("blockedExtensions"),"upload flows validate content or signed metadata beyond filename extension")
 check(publicApi.includes("public-api-ip:")&&publicApi.includes("public-api-key:"),"public API is rate limited by IP and API key")
 check(!publicApi.includes('"Access-Control-Allow-Origin":"*"')&&publicApi.includes("PUBLIC_API_ALLOWED_ORIGINS"),"public API CORS requires explicitly configured origins")
 check(nextConfig.includes("Content-Security-Policy")&&nextConfig.includes("frame-ancestors 'none'")&&nextConfig.includes("object-src 'none'"),"browser security headers include CSP anti-framing and anti-object rules")
 check(nextConfig.includes("Strict-Transport-Security")&&nextConfig.includes("X-Content-Type-Options"),"HSTS and nosniff are configured")
-check(read("migrations/0015_tenant_integrity_constraints.sql").includes("assignment_development_tenant_fk"),"database enforces tenant integrity for development assignments")
-check(read("migrations/0016_organization_integrity_constraints.sql").includes("member_organization_fk")&&read("migrations/0016_organization_integrity_constraints.sql").includes("ON DELETE RESTRICT"),"database blocks organization deletion while tenant resources still reference it")
+check(read("migrations/0016_tenant_integrity_constraints.sql").includes("assignment_development_tenant_fk"),"database enforces tenant integrity for development assignments")
+check(read("migrations/0017_organization_integrity_constraints.sql").includes("member_organization_fk")&&read("migrations/0017_organization_integrity_constraints.sql").includes("ON DELETE RESTRICT"),"database blocks organization deletion while tenant resources still reference it")
 
 const sourceFiles=[...walk("app"),...walk("components"),...walk("lib")]
 const rawHtml=sourceFiles.filter(p=>read(p).includes("dangerouslySetInnerHTML"))
@@ -84,8 +87,9 @@ const scopedRoutes=[
   "app/api/memorial/process/route.ts",
   "app/api/memorial/upload/route.ts",
 ]
-const unguarded=scopedRoutes.filter(p=>!(/requireDevelopment(?:Access|Role)/.test(read(p))))
+const unguarded=scopedRoutes.filter(p=>{const body=read(p);if(/requireDevelopment(?:Access|Role)/.test(body))return false;if(p.includes("/databook/")&&body.includes("@/lib/databook/service")&&/requireDevelopmentAccess/.test(databookService))return false;return true})
 check(unguarded.length===0,"tenant-sensitive routes enforce development authorization"+(unguarded.length?" ("+unguarded.join(", ")+")":""))
+check(databookService.includes("consumeRateLimit"),"Databook mutation services are rate limited")
 
 if(failures){
   console.error("\nSecurity static review failed with",failures,"finding(s).")
