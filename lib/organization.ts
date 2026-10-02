@@ -12,16 +12,17 @@ export type MemberStatus = "active" | "suspended" | "removed"
 export async function requireAuthenticatedUser() {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) throw new Error("Não autenticado")
-  const profile=(await db.select({accessStatus:userTable.accessStatus}).from(userTable).where(eq(userTable.id,session.user.id)).limit(1))[0]
-  if(profile?.accessStatus==="disabled")throw new Error("Conta inativa")
   return session.user
 }
 
 export async function getPlatformUser() {
   const current = await requireAuthenticatedUser()
-  const profile=await db.select({ platformRole: userTable.platformRole }).from(userTable).where(eq(userTable.id,current.id)).limit(1)
+  const [profile,legacyOwner] = await Promise.all([
+    db.select({ platformRole: userTable.platformRole }).from(userTable).where(eq(userTable.id,current.id)).limit(1),
+    db.select({ id:members.id }).from(members).where(and(eq(members.userId,current.id),eq(members.role,"owner"),eq(members.status,"active"))).limit(1),
+  ])
   const platformRole = profile[0]?.platformRole as PlatformRole | null | undefined
-  return { user: current, platformRole, isManager: platformRole === "manager" }
+  return { user: current, platformRole, isManager: platformRole === "manager" || Boolean(legacyOwner[0]) }
 }
 
 export async function requirePlatformManager() {

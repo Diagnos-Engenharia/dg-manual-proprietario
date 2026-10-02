@@ -6,6 +6,6 @@ export async function GET() {
     const context = await getActiveMembership()
     if (!context) return NextResponse.json({ error: "organization_required" }, { status: 404 })
     const metadata = context.organization.metadata ? JSON.parse(context.organization.metadata) as Record<string, unknown> : {}
-    return NextResponse.json({ user: { name: context.user.name, email: context.user.email, image: context.user.image }, organization: { name: context.organization.name, logo: context.organization.logo, initials: metadata.initials, primaryColor: metadata.primaryColor }, role: context.member.role === "owner" ? "admin" : context.member.role },{headers:{"Cache-Control":"private, no-store"}})
+    return NextResponse.json({ user: { name: context.user.name, email: context.user.email, image: context.user.image }, organization: { name: context.organization.name, logo: context.organization.logo, initials: metadata.initials, primaryColor: metadata.primaryColor }, role: context.member.role === "owner" ? "admin" : context.member.role })
   } catch { return NextResponse.json({ error: "Não autenticado" }, { status: 401 }) }
 }

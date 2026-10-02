@@ -36,8 +36,8 @@ export async function GET(request:Request){
         updated_at:row.updatedAt.toISOString(),
       })),
       meta:{count:rows.length,limit,since:since?.toISOString()??null},
-    },200,request)
-  }catch(error){return publicApiFailure(error,request)}
+    })
+  }catch(error){return publicApiFailure(error)}
 }
 
-export function OPTIONS(request:Request){return publicOptions(request)}
+export function OPTIONS(){return publicOptions()}

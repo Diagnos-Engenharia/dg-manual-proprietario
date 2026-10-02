@@ -12,7 +12,6 @@ export default async function ManagerPage(){
   const [companies,aiIntegration]=await Promise.all([listManagedOrganizations(),getPlatformAiIntegration()])
   return <ManagerDashboard
     managerName={manager.user.name}
-    managerEmail={manager.user.email}
     companies={companies.map(company=>({...company,members:company.members.map(member=>({...member,lastAccessAt:member.lastAccessAt?.toISOString()??null}))}))}
     aiIntegration={aiIntegration}
   />

@@ -5,26 +5,22 @@ import { auditLogs, developments, manualVersions } from "@/lib/db/schema"
 import { requireDevelopmentRole, type DevelopmentRole } from "@/lib/organization"
 import { manualApiError } from "@/lib/manual-document/http"
 import { FinishingContentError, loadFinishingSource } from "@/lib/finishing-units"
-import { assertId } from "@/lib/security/input"
-import { consumeRateLimit } from "@/lib/security/rate-limit"
 
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    if (typeof body.id !== "string" || typeof body.status !== "string" || !["validacao", "aprovado", "publicado"].includes(body.status)) return NextResponse.json({ error: "Transição inválida" }, { status: 400 })
-    const versionId = assertId(body.id, "Versão")
+    if (typeof body.id !== "string" || !["validacao", "aprovado", "publicado"].includes(body.status)) return NextResponse.json({ error: "Transição inválida" }, { status: 400 })
     const roles: DevelopmentRole[] = body.status === "publicado" || body.status === "aprovado" ? ["admin"] : ["admin", "admin_empreendimento", "editor"]
-    const version = (await db.select().from(manualVersions).where(eq(manualVersions.id,versionId)).limit(1))[0]
+    const version = (await db.select().from(manualVersions).where(eq(manualVersions.id,body.id)).limit(1))[0]
     if(!version)return NextResponse.json({error:"Versão não encontrada"},{status:404})
     const context = await requireDevelopmentRole(version.developmentId,roles)
-    await consumeRateLimit(`manual-status:${context.user.id}`, { max: 60, windowSeconds: 3600 })
     const previous: Record<string,string> = { validacao:"rascunho", aprovado:"validacao", publicado:"aprovado" }
     await db.transaction(async tx => {
       // Match issuance's lock order: parent first, then version. This serializes
       // competing publications before either checks/replaces the published row.
       const development = (await tx.select({ id: developments.id }).from(developments).where(and(eq(developments.id,context.development.id),eq(developments.organizationId,context.organization.id))).for("update"))[0]
       if(!development)throw new Error("Empreendimento não encontrado")
-      const current = (await tx.select().from(manualVersions).where(and(eq(manualVersions.id,versionId),eq(manualVersions.developmentId,development.id),eq(manualVersions.organizationId,context.organization.id))).for("update"))[0]
+      const current = (await tx.select().from(manualVersions).where(and(eq(manualVersions.id,body.id),eq(manualVersions.developmentId,development.id),eq(manualVersions.organizationId,context.organization.id))).for("update"))[0]
       if(!current)throw new Error("Versão não encontrada")
       if(current.status!==previous[body.status])throw new Error("Transição inválida para o estado atual da versão")
       if(current.manualType==="acabamentos" && ["aprovado","publicado"].includes(body.status)) {

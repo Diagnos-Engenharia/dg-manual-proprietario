@@ -1,12 +1,15 @@
 "use server"
 
 import { and, desc, eq, isNull } from "drizzle-orm"
+import { headers } from "next/headers"
+import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { organizationNotifications } from "@/lib/db/schema"
-import { requireAuthenticatedUser } from "@/lib/organization"
 
 async function currentUser() {
-  return (await requireAuthenticatedUser()).id
+  const session = await auth.api.getSession({ headers: await headers() })
+  if (!session?.user) throw new Error("Não autenticado")
+  return session.user.id
 }
 
 export async function listNotifications() {

@@ -45,9 +45,9 @@ export const DocumentNavigation = memo(function DocumentNavigation({ sections, l
   }, [index, deferredQuery, pageText])
 
   return <nav aria-label="Sumário do manual" className="flex min-h-0 flex-col border-r border-border bg-card">
-    <div className="border-b border-border p-2.5">
-      <h2 className="mb-2 text-sm font-semibold">Sumário</h2>
-      <div className="relative"><Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" /><Input value={query} onChange={event => setQuery(event.target.value)} placeholder="Buscar no manual" aria-label="Buscar no manual" className="h-8 pl-8" /></div>
+    <div className="border-b border-border p-3">
+      <h2 className="mb-3 text-sm font-semibold">Sumário</h2>
+      <div className="relative"><Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" /><Input value={query} onChange={event => setQuery(event.target.value)} placeholder="Buscar no manual" aria-label="Buscar no manual" className="pl-8" /></div>
     </div>
     <div className="min-h-0 flex-1 overflow-y-auto p-2">
       {matches ? <div aria-live="polite"><p className="px-2 py-2 text-xs text-muted-foreground">{matches.length} resultado{matches.length === 1 ? "" : "s"}</p><ul>{matches.map(({ section, matchingPage }) => <li key={section.id}><NavigationItem section={section} page={matchingPage ?? layout.destinations[section.id]?.page} targetPage={matchingPage} active={activeId === section.id} onNavigate={onNavigate} /></li>)}</ul></div> : <SectionTree sections={sections} layout={layout} activeId={activeId} expanded={expanded} onExpand={onExpand} onNavigate={onNavigate} />}
@@ -66,7 +66,7 @@ function SectionTree({ sections, layout, activeId, expanded, onExpand, onNavigat
 }
 
 function NavigationItem({ section, page, targetPage, active, onNavigate }: { section: ManualSection; page?: number; targetPage?: number; active: boolean; onNavigate: (id: string, page?: number) => void }) {
-  return <button type="button" aria-current={active ? "location" : undefined} onClick={() => onNavigate(section.id, targetPage)} title={contentStatusLabels[section.validationStatus]} className={cn("flex min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-1.5 text-left text-xs leading-relaxed", active ? "bg-primary/10 font-medium text-primary" : "text-foreground/80 hover:bg-accent")}>
+  return <button type="button" aria-current={active ? "location" : undefined} onClick={() => onNavigate(section.id, targetPage)} title={contentStatusLabels[section.validationStatus]} className={cn("flex min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-2 text-left text-xs leading-relaxed", active ? "bg-primary/10 font-medium text-primary" : "text-foreground/80 hover:bg-accent")}>
     <ContentStatusIcon status={section.validationStatus} className="mt-0.5" /><span className="min-w-0 flex-1">{section.number ? section.number + " " : ""}{section.title}</span>{page ? <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">{page}</span> : null}
   </button>
 }

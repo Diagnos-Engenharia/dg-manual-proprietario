@@ -18,7 +18,7 @@ import type { FinishingUnitSummary, UnitCatalog } from "@/lib/finishing-types"
 
 type DocumentType = "proprietario" | "sindico" | "acabamentos"
 type ViewMode = "continuous" | "single"
-type Compilation = { id: string; filename: string; revision: number; pages: number }
+type Compilation = { filename: string; pathname: string; revision: number; pages: number }
 const labels: Record<DocumentType, string> = { proprietario: "Manual do Proprietário", sindico: "Manual do Síndico", acabamentos: "Tabelas de acabamento" }
 const pointToPixel = 96 / 72
 
@@ -51,7 +51,7 @@ export function PdfCompiler({ developmentId, role }: { developmentId?: string; r
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [page, setPage] = useState(1)
   const [zoom, setZoom] = useState(0.7)
-  const [viewMode, setViewMode] = useState<ViewMode>("single")
+  const [viewMode, setViewMode] = useState<ViewMode>("continuous")
   const [interactionMode, setInteractionMode] = useState<ManualInteractionMode>("view")
   const [historyOpen, setHistoryOpen] = useState(false)
   const [pendingOpen, setPendingOpen] = useState(false)
@@ -256,24 +256,10 @@ export function PdfCompiler({ developmentId, role }: { developmentId?: string; r
     const viewport = viewportRef.current
     const first = preview?.layout.pages[0]
     if (!viewport || !first) return
-    const width = (viewport.clientWidth - 28) / (first.width * pointToPixel)
-    const height = (viewport.clientHeight - 36) / (first.height * pointToPixel)
+    const width = (viewport.clientWidth - 56) / (first.width * pointToPixel)
+    const height = (viewport.clientHeight - 70) / (first.height * pointToPixel)
     changeZoom(kind === "page" ? Math.min(width, height) : width, kind === "page")
   }
-  useLayoutEffect(() => {
-    if (!preview) return
-    let frame = 0
-    const viewport = viewportRef.current
-    const apply = () => {
-      if (frame) cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(() => fit("page"))
-    }
-    apply()
-    if (!viewport) return () => { if (frame) cancelAnimationFrame(frame) }
-    const observer = new ResizeObserver(apply)
-    observer.observe(viewport)
-    return () => { if (frame) cancelAnimationFrame(frame); observer.disconnect() }
-  }, [preview?.fingerprint, viewMode])
   function movePage(next: number) {
     const number = Math.max(1, Math.min(pageCount, next))
     setPage(number)
@@ -348,26 +334,26 @@ export function PdfCompiler({ developmentId, role }: { developmentId?: string; r
   const selectedUnit = manual === "acabamentos" ? units.find(unit => unit.id === unitId) : undefined
 
   if (!developmentId) return <div className="rounded-lg border border-border p-8 text-center text-sm text-muted-foreground">Selecione um empreendimento para compor o manual.</div>
-  return <div className="flex min-w-0 flex-col gap-2">
+  return <div className="flex min-w-0 flex-col gap-3">
     <div className="rounded-xl border border-border bg-card shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-3">
         <div className="flex min-w-0 flex-wrap items-center gap-3"><label className="sr-only" htmlFor="manual-type">Tipo de manual</label><select id="manual-type" value={manual} onChange={event => selectTarget(event.target.value as DocumentType)} className="h-9 max-w-full rounded-md border border-input bg-background px-2 text-sm font-semibold">{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>{manual === "acabamentos" && <><label className="sr-only" htmlFor="finishing-unit">Unidade da tabela</label><select id="finishing-unit" value={unitId ?? ""} disabled={loading} onChange={event => selectTarget("acabamentos", event.target.value || null)} className="h-9 max-w-full rounded-md border border-input bg-background px-2 text-sm"><option value="">Selecione uma unidade</option>{unitId && !units.some(unit => unit.id === unitId) && <option value={unitId}>Unidade indisponível</option>}{units.map(unit => <option key={unit.id} value={unit.id}>{[unit.tower, "Unidade " + unit.number].filter(Boolean).join(" · ")}</option>)}</select></>}{preview && <><span className="text-xs tabular-nums text-muted-foreground">Rev. {String(revision).padStart(2, "0")} · {pageCount} páginas</span><Badge variant="outline" className={cn(ready && "border-success/30 text-success")}>{overall}% concluído</Badge></>}</div>
         <div className="flex flex-wrap items-center gap-1.5"><Button variant="ghost" size="sm" onClick={() => void load()} disabled={loading || compiling || actionBusy}><RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />Atualizar preview</Button>{manual !== "acabamentos" && <Button variant="ghost" size="sm" onClick={() => setOptionalOpen(true)}><ListFilter className="h-3.5 w-3.5" />Módulos</Button>}<Button variant="outline" size="sm" onClick={() => setHistoryOpen(true)} disabled={manual === "acabamentos" && !unitId}><History className="h-3.5 w-3.5" />Histórico</Button><Button variant="outline" size="sm" onClick={() => setPendingOpen(true)} disabled={!preview}><AlertTriangle className="h-3.5 w-3.5" />Pendências{pendingCount > 0 && <span className="rounded bg-muted px-1.5 text-[10px]">{pendingCount}</span>}</Button></div>
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-3 py-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-3 py-2">
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground">{ready ? <CheckCircle2 className="h-3.5 w-3.5 text-success" /> : <FileText className="h-3.5 w-3.5" />}<span>{documentState}</span>{versions[0] && <span className="hidden sm:inline">· Última emissão: {versionStatusLabels[versions[0].status] ?? versions[0].status}</span>}<span className="hidden md:inline">· {preview ? elapsed < 60 ? "Preview atualizado há " + elapsed + " s" : "Preview atualizado há " + Math.floor(elapsed / 60) + " min" : "Preparando preview"}</span></div>
         <div className="flex flex-wrap items-center gap-1"><Button variant="ghost" size="icon-sm" aria-label="Diminuir zoom" onClick={() => changeZoom(zoom - 0.1)}><Minus className="h-3.5 w-3.5" /></Button><span className="min-w-10 text-center text-xs tabular-nums">{Math.round(zoom * 100)}%</span><Button variant="ghost" size="icon-sm" aria-label="Aumentar zoom" onClick={() => changeZoom(zoom + 0.1)}><Plus className="h-3.5 w-3.5" /></Button><Button variant="ghost" size="sm" onClick={() => fit("page")} disabled={!preview}><Maximize className="h-3.5 w-3.5" />Página</Button><Button variant="ghost" size="sm" onClick={() => fit("width")} disabled={!preview}>Largura</Button><select aria-label="Modo de visualização" value={viewMode} onChange={event => setViewMode(event.target.value as ViewMode)} className="ml-1 h-7 rounded-md border border-input bg-background px-1.5 text-xs"><option value="continuous">Contínuo</option><option value="single">Página única</option></select><Button variant="ghost" size="icon-sm" aria-label="Abrir informações da seção" className="xl:hidden" onClick={() => setInspectorOpen(true)}><PanelRight className="h-4 w-4" /></Button></div>
       </div>
     </div>
     {error && <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span>{error}</span></div>}
-    {success && <div role="status" className="flex flex-wrap items-center gap-3 rounded-lg border border-success/20 bg-success/5 px-3 py-2 text-xs"><CheckCircle2 className="h-4 w-4 text-success" /><span>Rev. {String(success.revision).padStart(2, "0")} emitida · {success.pages} páginas</span><a href={manualFileUrl(success.id)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline"><Eye className="h-3.5 w-3.5" />Visualizar</a><a href={manualFileUrl(success.id)} download={success.filename} className="inline-flex items-center gap-1 text-primary hover:underline"><Download className="h-3.5 w-3.5" />Baixar</a></div>}
-    <div className="grid h-[clamp(440px,calc(100dvh-240px),680px)] min-h-0 min-w-0 grid-cols-[minmax(150px,210px)_minmax(0,1fr)] overflow-hidden rounded-xl border border-border xl:grid-cols-[220px_minmax(0,1fr)_230px]">
+    {success && <div role="status" className="flex flex-wrap items-center gap-3 rounded-lg border border-success/20 bg-success/5 px-3 py-2 text-xs"><CheckCircle2 className="h-4 w-4 text-success" /><span>Rev. {String(success.revision).padStart(2, "0")} emitida · {success.pages} páginas</span><a href={manualFileUrl(success.pathname)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline"><Eye className="h-3.5 w-3.5" />Visualizar</a><a href={manualFileUrl(success.pathname)} download={success.filename} className="inline-flex items-center gap-1 text-primary hover:underline"><Download className="h-3.5 w-3.5" />Baixar</a></div>}
+    <div className="grid h-[calc(100dvh-240px)] min-h-[560px] min-w-0 grid-cols-[minmax(160px,220px)_minmax(0,1fr)] overflow-hidden rounded-xl border border-border xl:grid-cols-[240px_minmax(0,1fr)_250px]">
       {preview ? <DocumentNavigation sections={preview.document.sections} layout={preview.layout} activeId={activeId} expanded={expanded} onExpand={toggleExpanded} onNavigate={interactWithTopic} /> : <div className="border-r border-border bg-card p-4 text-sm text-muted-foreground">Sumário{loading && <p className="mt-4 text-xs">Carregando estrutura…</p>}</div>}
       <div className="flex min-h-0 min-w-0 flex-col bg-muted/50">
-        <div ref={viewportRef} data-preview-viewport className="relative min-h-0 flex-1 overflow-auto [overflow-anchor:none]" aria-label={manual === "acabamentos" ? "Pré-visualização da tabela de acabamentos em páginas A4" : "Pré-visualização do manual em páginas A4"} aria-busy={loading}>
-          {preview ? <div className="flex min-h-full min-w-max flex-col items-center gap-3 p-3">{visiblePages.map(item => <PageSheet key={item.number} page={item} preview={preview} zoom={zoom} pageRefs={pageRefs} onNavigate={navigate} editMode={interactionMode === "edit"} onEditSection={editSection} />)}</div> : <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center"><FileText className="h-10 w-10 text-muted-foreground/50" />{loading ? <><Loader2 className="h-5 w-5 animate-spin text-primary" /><p className="text-sm text-muted-foreground">Preparando documento…</p></> : manual === "acabamentos" && !unitId ? <><p className="text-sm text-muted-foreground">{unitsLoaded && !units.length ? "Cadastre uma unidade e prepare sua tabela de acabamentos para visualizar e emitir o PDF." : "Selecione a unidade para conferir sua tabela de acabamentos."}</p><a href={stageHref("unidade")} className="text-sm font-medium text-primary hover:underline">{unitsLoaded && !units.length ? "Cadastrar unidade" : "Elaborar tabelas de acabamento"}</a></> : <><p className="text-sm text-muted-foreground">{manual === "acabamentos" ? "Não foi possível preparar a tabela desta unidade. Confira a seleção e tente novamente." : "O preview estará disponível com a estrutura do manual, mesmo antes de sua conclusão."}</p><Button variant="outline" size="sm" onClick={() => void load()}>Carregar preview</Button></>}</div>}
+        <div ref={viewportRef} className="relative min-h-0 flex-1 overflow-auto [overflow-anchor:none]" aria-label={manual === "acabamentos" ? "Pré-visualização da tabela de acabamentos em páginas A4" : "Pré-visualização do manual em páginas A4"} aria-busy={loading}>
+          {preview ? <div className="flex min-h-full min-w-max flex-col items-center gap-6 p-6">{visiblePages.map(item => <PageSheet key={item.number} page={item} preview={preview} zoom={zoom} pageRefs={pageRefs} onNavigate={navigate} editMode={interactionMode === "edit"} onEditSection={editSection} />)}</div> : <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center"><FileText className="h-10 w-10 text-muted-foreground/50" />{loading ? <><Loader2 className="h-5 w-5 animate-spin text-primary" /><p className="text-sm text-muted-foreground">Preparando documento…</p></> : manual === "acabamentos" && !unitId ? <><p className="text-sm text-muted-foreground">{unitsLoaded && !units.length ? "Cadastre uma unidade e prepare sua tabela de acabamentos para visualizar e emitir o PDF." : "Selecione a unidade para conferir sua tabela de acabamentos."}</p><a href={stageHref("unidade")} className="text-sm font-medium text-primary hover:underline">{unitsLoaded && !units.length ? "Cadastrar unidade" : "Elaborar tabelas de acabamento"}</a></> : <><p className="text-sm text-muted-foreground">{manual === "acabamentos" ? "Não foi possível preparar a tabela desta unidade. Confira a seleção e tente novamente." : "O preview estará disponível com a estrutura do manual, mesmo antes de sua conclusão."}</p><Button variant="outline" size="sm" onClick={() => void load()}>Carregar preview</Button></>}</div>}
         </div>
-        <div className="flex shrink-0 items-center justify-center gap-2 border-t border-border bg-card px-3 py-1.5"><Button variant="ghost" size="icon-sm" aria-label="Página anterior" disabled={page <= 1 || !preview} onClick={() => movePage(page - 1)}><ChevronLeft className="h-4 w-4" /></Button><label className="flex items-center gap-2 text-xs text-muted-foreground">Página<input aria-label="Ir para página" type="number" min={1} max={pageCount || 1} value={page} onChange={event => { const next = Number(event.target.value); if (Number.isFinite(next) && next >= 1) movePage(next) }} className="h-7 w-12 rounded-md border border-input bg-background px-1 text-center text-foreground" />de {pageCount}</label><Button variant="ghost" size="icon-sm" aria-label="Próxima página" disabled={page >= pageCount || !preview} onClick={() => movePage(page + 1)}><ChevronRight className="h-4 w-4" /></Button></div>
+        <div className="flex shrink-0 items-center justify-center gap-3 border-t border-border bg-card px-3 py-2"><Button variant="ghost" size="icon-sm" aria-label="Página anterior" disabled={page <= 1 || !preview} onClick={() => movePage(page - 1)}><ChevronLeft className="h-4 w-4" /></Button><label className="flex items-center gap-2 text-xs text-muted-foreground">Página<input aria-label="Ir para página" type="number" min={1} max={pageCount || 1} value={page} onChange={event => { const next = Number(event.target.value); if (Number.isFinite(next) && next >= 1) movePage(next) }} className="h-7 w-12 rounded-md border border-input bg-background px-1 text-center text-foreground" />de {pageCount}</label><Button variant="ghost" size="icon-sm" aria-label="Próxima página" disabled={page >= pageCount || !preview} onClick={() => movePage(page + 1)}><ChevronRight className="h-4 w-4" /></Button></div>
       </div>
       <aside className="hidden min-h-0 overflow-y-auto border-l border-border bg-card xl:block" aria-label="Informações da seção"><SectionInspector key={scope} {...inspectorProps} /></aside>
     </div>

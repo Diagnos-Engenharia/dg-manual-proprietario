@@ -20,7 +20,7 @@ export function buildFinishingDocument(source: FinishingDocumentSource, purpose:
   const { unit, table } = source
   const editHref = "/empreendimentos/" + encodeURIComponent(source.developmentId) + "?modulo=elaboracao&aba=acabamentos&unidade=" + encodeURIComponent(unit.id)
   const status = table?.status ?? "sem_conteudo"
-  const visible = Boolean(table) && (purpose === "preview" || status === "aprovado")
+  const visible = status === "aprovado" || (purpose === "preview" && status === "aguardando_validacao")
   const grouped = new Map<string, ReturnType<typeof emptyFinishingData>>()
   for (const group of finishingGroups) for (const row of table?.data[group] ?? []) {
     const environment = row.ambiente?.trim() || "Especificações da unidade"

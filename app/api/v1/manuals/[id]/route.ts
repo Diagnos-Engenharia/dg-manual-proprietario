@@ -8,7 +8,7 @@ export async function GET(request:Request,{params}:{params:Promise<{id:string}>}
     const auth=await requirePublicApiScope(request,"manuals:read")
     const {id}=await params
     const manual=(await db.select().from(manualVersions).where(and(eq(manualVersions.id,id),eq(manualVersions.organizationId,auth.organizationId),inArray(manualVersions.manualType,["proprietario","sindico"]))).limit(1))[0]
-    if(!manual)return publicJson({error:{code:"not_found",message:"Manual não encontrado."}},404,request)
+    if(!manual)return publicJson({error:{code:"not_found",message:"Manual não encontrado."}},404)
     const development=(await db.select({id:developments.id,name:developments.name,client:developments.client}).from(developments).where(and(eq(developments.id,manual.developmentId),eq(developments.organizationId,auth.organizationId))).limit(1))[0]
     const origin=new URL(request.url).origin
     return publicJson({data:{
@@ -27,8 +27,8 @@ export async function GET(request:Request,{params}:{params:Promise<{id:string}>}
       finishing_rows:manual.finishingRows,
       created_at:manual.createdAt.toISOString(),
       download_url:origin+"/api/v1/manuals/"+manual.id+"/file",
-    }},200,request)
-  }catch(error){return publicApiFailure(error,request)}
+    }})
+  }catch(error){return publicApiFailure(error)}
 }
 
-export function OPTIONS(request:Request){return publicOptions(request)}
+export function OPTIONS(){return publicOptions()}
