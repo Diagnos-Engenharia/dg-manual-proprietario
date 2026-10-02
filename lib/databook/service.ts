@@ -2,6 +2,7 @@ import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/lib/db"
 import { auditLogs, databookFiles, developments } from "@/lib/db/schema"
 import { canEditContent, requireDevelopmentAccess } from "@/lib/organization"
+import { consumeRateLimit } from "@/lib/security/rate-limit"
 import { databookNameKey, DATABOOK_GENERAL_FOLDER, normalizeDatabookName, resolveDatabookFolders, type DatabookCatalog, type DatabookFile, type DatabookFolder } from "./types"
 import { DatabookError, signUploadTicket, uploadPath, validateFileMetadata, verifyUploadTicket, type UploadTicket } from "./ticket"
 import { hasLocalDatabookStorage, headDatabookFile, removeDatabookFile, requireDatabookStorage } from "./storage"
@@ -54,6 +55,7 @@ export async function listDatabookCatalog(developmentId: unknown): Promise<Datab
 export async function mutateDatabookFolder(input: { developmentId: unknown; action: unknown; id?: unknown; name?: unknown; expectedName?: unknown }) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new DatabookError("Dados de pasta inválidos.")
   const context = await databookAccess(input.developmentId, true)
+  await consumeRateLimit(`databook-folder:${context.user.id}`, { max: 120, windowSeconds: 3600 })
   if (!["create", "rename", "delete"].includes(String(input.action))) throw new DatabookError("Ação de pasta inválida.")
   if (input.action === "delete") {
     const catalog = await listDatabookCatalog(context.development.id)
@@ -102,6 +104,7 @@ export async function mutateDatabookFolder(input: { developmentId: unknown; acti
 
 export async function prepareDatabookUpload(input: { developmentId: unknown; folderId?: unknown; name: unknown; contentType: unknown; size: unknown }) {
   const context = await databookAccess(input.developmentId, true)
+  await consumeRateLimit(`databook-upload:${context.user.id}`, { max: 40, windowSeconds: 3600 })
   const metadata = validateFileMetadata(input.name, input.contentType, input.size)
   requireDatabookStorage()
   const folder = await db.transaction(async tx => {
@@ -162,6 +165,7 @@ export async function findDatabookFile(pathname: unknown) {
 export async function renameDatabookFile(input: { developmentId: unknown; id?: unknown; name?: unknown; expectedName?: unknown }) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new DatabookError("Dados de arquivo inválidos.")
   const context = await databookAccess(input.developmentId, true)
+  await consumeRateLimit(`databook-rename:${context.user.id}`, { max: 120, windowSeconds: 3600 })
   const metadata = validateFileMetadata(input.name, "application/octet-stream", 1)
   return db.transaction(async tx => {
     await lockDevelopment(tx, context)
@@ -178,6 +182,7 @@ export async function deleteDatabookFile(input: { developmentId?: unknown; id?: 
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new DatabookError("Dados de arquivo inválidos.")
   const row = input.pathname ? await findDatabookFile(input.pathname) : null
   const context = await databookAccess(input.developmentId ?? row?.developmentId, true)
+  await consumeRateLimit(`databook-delete:${context.user.id}`, { max: 60, windowSeconds: 3600 })
   return db.transaction(async tx => {
     const development = await lockDevelopment(tx, context)
     const file = (await tx.select().from(databookFiles).where(and(eq(databookFiles.id, row?.id ?? String(input.id)), eq(databookFiles.developmentId, context.development.id))))[0]
