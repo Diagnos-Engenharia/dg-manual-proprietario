@@ -3,7 +3,8 @@ import { NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { manualVersions } from "@/lib/db/schema"
 import { getManualFile } from "@/lib/manual-files"
-import { publicApiFailure,publicJson,publicOptions,requirePublicApiScope } from "@/lib/public-api"
+import { publicApiFailure,publicCorsHeaders,publicJson,publicOptions,requirePublicApiScope } from "@/lib/public-api"
+import { safeContentDisposition } from "@/lib/security/uploads"
 
 export async function GET(request:Request,{params}:{params:Promise<{id:string}>}){
   try{
@@ -15,13 +16,12 @@ export async function GET(request:Request,{params}:{params:Promise<{id:string}>}
     if(!result)return publicJson({error:{code:"file_not_found",message:"Arquivo do manual não encontrado."}},404)
     return new NextResponse(result.stream,{headers:{
       "Content-Type":result.blob.contentType||"application/pdf",
-      "Content-Disposition":'attachment; filename="'+row.filename.replace(/"/g,"")+'"',
+      "Content-Disposition":safeContentDisposition(row.filename),
       "Cache-Control":"private, no-store",
-      "Access-Control-Allow-Origin":"*",
-      "Access-Control-Allow-Headers":"Authorization, Content-Type",
+      ...publicCorsHeaders(request),
       "X-DG-Manual-Id":id,
     }})
-  }catch(error){return publicApiFailure(error)}
+  }catch(error){return publicApiFailure(error,request)}
 }
 
 export function OPTIONS(){return publicOptions()}
