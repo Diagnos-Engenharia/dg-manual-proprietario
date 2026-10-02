@@ -13,10 +13,8 @@ export function sanitizePathSegment(value:string){
 }
 
 export function safeContentDisposition(filename:string,mode:"inline"|"attachment"="attachment"){
-  const normalized=sanitizeFilename(filename)
-  const safe=normalized.replace(/[^\x20-\x7E]/g,"_").replace(/["\\]/g,"_")
-  const encoded=encodeURIComponent(normalized).replace(/['()*]/g,char=>"%"+char.charCodeAt(0).toString(16).toUpperCase())
-  return mode+'; filename="'+safe+'"; filename*=UTF-8\'\''+encoded
+  const safe=sanitizeFilename(filename).replace(/[^\x20-\x7E]/g,"_")
+  return mode+'; filename="'+safe+'"'
 }
 
 async function head(file:File,length=16){

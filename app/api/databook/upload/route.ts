@@ -4,7 +4,6 @@ import { databookApiError, databookHeaders } from "@/lib/databook/http"
 import { authorizeDatabookTicket, finalizeDatabookUpload, prepareDatabookUpload } from "@/lib/databook/service"
 import { hasLocalDatabookStorage, requireDatabookStorage, writeLocalDatabookFile } from "@/lib/databook/storage"
 import { DatabookError, validateFileMetadata } from "@/lib/databook/ticket"
-import { assertDatabookFile } from "@/lib/security/uploads"
 
 export const runtime = "nodejs"
 export async function POST(request: Request) {
@@ -16,7 +15,6 @@ export async function POST(request: Request) {
       const value = form.get("ticket")
       const { ticket } = await authorizeDatabookTicket(value)
       if (!(file instanceof File) || file.size !== ticket.size || validateFileMetadata(file.name, file.type || "application/octet-stream", file.size).name !== ticket.name || (file.type || "application/octet-stream") !== ticket.contentType) throw new DatabookError("O arquivo não corresponde ao envio autorizado.")
-      assertDatabookFile(file)
       await writeLocalDatabookFile(ticket.pathname, file)
       return NextResponse.json({ file: await finalizeDatabookUpload(value) }, { headers: databookHeaders })
     }
