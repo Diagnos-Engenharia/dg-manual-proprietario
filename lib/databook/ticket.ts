@@ -8,19 +8,7 @@ export function validateFileMetadata(name: unknown, contentType: unknown, size: 
   if (typeof name !== "string" || !normalizeDatabookName(name) || name.length > 240 || /[\x00-\x1f\x7f\\/]/.test(name)) throw new DatabookError("Nome de arquivo inválido.")
   if (typeof size !== "number" || !Number.isSafeInteger(size) || size <= 0) throw new DatabookError("O arquivo está vazio.")
   if (size > DATABOOK_MAX_BYTES) throw new DatabookError("O arquivo deve ter no máximo 50 MB.", 413)
-  if (typeof contentType !== "string" || contentType.length > 200 || (contentType.trim() && !/^[a-z0-9!#export function validateFileMetadata(name: unknown, contentType: unknown, size: unknown) {
-  if (typeof name !== "string" || !normalizeDatabookName(name) || name.length > 240 || /[\x00-\x1f\x7f\\/]/.test(name)) throw new DatabookError("Nome de arquivo inválido.")
-  if (typeof size !== "number" || !Number.isSafeInteger(size) || size <= 0) throw new DatabookError("O arquivo está vazio.")
-  if (size > DATABOOK_MAX_BYTES) throw new DatabookError("O arquivo deve ter no máximo 50 MB.", 413)
   if (typeof contentType !== "string" || contentType.length > 200 || (contentType.trim() && !/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i.test(contentType.trim()))) throw new DatabookError("Tipo de arquivo inválido.")
-  return { name: normalizeDatabookName(name), contentType: contentType.trim().toLowerCase() || "application/octet-stream", size }
-}^_.+-]+\/[a-z0-9!#export function validateFileMetadata(name: unknown, contentType: unknown, size: unknown) {
-  if (typeof name !== "string" || !normalizeDatabookName(name) || name.length > 240 || /[\x00-\x1f\x7f\\/]/.test(name)) throw new DatabookError("Nome de arquivo inválido.")
-  if (typeof size !== "number" || !Number.isSafeInteger(size) || size <= 0) throw new DatabookError("O arquivo está vazio.")
-  if (size > DATABOOK_MAX_BYTES) throw new DatabookError("O arquivo deve ter no máximo 50 MB.", 413)
-  if (typeof contentType !== "string" || contentType.length > 200 || (contentType.trim() && !/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i.test(contentType.trim()))) throw new DatabookError("Tipo de arquivo inválido.")
-  return { name: normalizeDatabookName(name), contentType: contentType.trim().toLowerCase() || "application/octet-stream", size }
-}^_.+-]+$/i.test(contentType.trim()))) throw new DatabookError("Tipo de arquivo inválido.")
   const normalizedName = normalizeDatabookName(name)
   const normalizedType = contentType.trim().toLowerCase() || "application/octet-stream"
   const blockedExtensions = [".html",".htm",".svg",".js",".mjs",".cjs",".exe",".dll",".bat",".cmd",".ps1",".sh",".php",".jsp",".msi"]
