@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server"
 import { DatabookError } from "./ticket"
+import { RateLimitError } from "@/lib/security/rate-limit"
 export const databookHeaders = { "Cache-Control": "private, no-store" }
 export function databookApiError(error: unknown) {
   if (error instanceof DatabookError) return NextResponse.json({ error: error.message }, { status: error.status, headers: databookHeaders })
+  if (error instanceof RateLimitError) return NextResponse.json({ error: error.message }, { status: 429, headers: { ...databookHeaders, "Retry-After": String(error.retryAfterSeconds) } })
   if (error instanceof SyntaxError) return NextResponse.json({ error: "Dados de arquivo inválidos." }, { status: 400, headers: databookHeaders })
   console.error("databook.operation", error)
   const message = error instanceof Error ? error.message : ""
