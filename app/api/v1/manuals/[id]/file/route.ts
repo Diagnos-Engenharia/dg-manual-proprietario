@@ -11,9 +11,9 @@ export async function GET(request:Request,{params}:{params:Promise<{id:string}>}
     const auth=await requirePublicApiScope(request,"manuals:read")
     const {id}=await params
     const row=(await db.select({pathname:manualVersions.pathname,filename:manualVersions.filename}).from(manualVersions).where(and(eq(manualVersions.id,id),eq(manualVersions.organizationId,auth.organizationId),inArray(manualVersions.manualType,["proprietario","sindico"]))).limit(1))[0]
-    if(!row)return publicJson({error:{code:"not_found",message:"Manual não encontrado."}},404)
+    if(!row)return publicJson({error:{code:"not_found",message:"Manual não encontrado."}},404,request)
     const result=await getManualFile(row.pathname)
-    if(!result)return publicJson({error:{code:"file_not_found",message:"Arquivo do manual não encontrado."}},404)
+    if(!result)return publicJson({error:{code:"file_not_found",message:"Arquivo do manual não encontrado."}},404,request)
     return new NextResponse(result.stream,{headers:{
       "Content-Type":result.blob.contentType||"application/pdf",
       "Content-Disposition":safeContentDisposition(row.filename),
@@ -24,4 +24,4 @@ export async function GET(request:Request,{params}:{params:Promise<{id:string}>}
   }catch(error){return publicApiFailure(error,request)}
 }
 
-export function OPTIONS(){return publicOptions()}
+export function OPTIONS(request:Request){return publicOptions(request)}

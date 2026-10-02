@@ -13,6 +13,6 @@ export async function POST(request: Request) {
     const context = await requireDevelopmentAccess(body.developmentId)
     const preview = await composeManualPreview(context, manualType)
     const { source } = await loadManualSource(context, manualType)
-    return NextResponse.json({ ...preview.readiness, alerts: preview.layout.warnings, sections: flattenSections(preview.document.sections).length, attachments: source.files, manualType, development: source.name, finishing: source.finishing.map(({ id, tower, typology, unitModel, area, revision, status, updatedAt }) => ({ id, tower, typology, unitModel, area, revision, status, updatedAt })) }, { headers: { "Cache-Control": "private, no-store" } })
+    return NextResponse.json({ ...preview.readiness, alerts: preview.layout.warnings, sections: flattenSections(preview.document.sections).length, attachments: source.files.map(({ id, name, sizeBytes }) => ({ id, name, sizeBytes })), manualType, development: source.name, finishing: source.finishing.map(({ id, tower, typology, unitModel, area, revision, status, updatedAt }) => ({ id, tower, typology, unitModel, area, revision, status, updatedAt })) }, { headers: { "Cache-Control": "private, no-store" } })
   } catch (error) { return manualApiError(error) }
 }

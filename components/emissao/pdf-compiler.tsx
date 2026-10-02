@@ -18,7 +18,7 @@ import type { FinishingUnitSummary, UnitCatalog } from "@/lib/finishing-types"
 
 type DocumentType = "proprietario" | "sindico" | "acabamentos"
 type ViewMode = "continuous" | "single"
-type Compilation = { filename: string; pathname: string; revision: number; pages: number }
+type Compilation = { id: string; filename: string; revision: number; pages: number }
 const labels: Record<DocumentType, string> = { proprietario: "Manual do Proprietário", sindico: "Manual do Síndico", acabamentos: "Tabelas de acabamento" }
 const pointToPixel = 96 / 72
 
@@ -346,7 +346,7 @@ export function PdfCompiler({ developmentId, role }: { developmentId?: string; r
       </div>
     </div>
     {error && <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span>{error}</span></div>}
-    {success && <div role="status" className="flex flex-wrap items-center gap-3 rounded-lg border border-success/20 bg-success/5 px-3 py-2 text-xs"><CheckCircle2 className="h-4 w-4 text-success" /><span>Rev. {String(success.revision).padStart(2, "0")} emitida · {success.pages} páginas</span><a href={manualFileUrl(success.pathname)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline"><Eye className="h-3.5 w-3.5" />Visualizar</a><a href={manualFileUrl(success.pathname)} download={success.filename} className="inline-flex items-center gap-1 text-primary hover:underline"><Download className="h-3.5 w-3.5" />Baixar</a></div>}
+    {success && <div role="status" className="flex flex-wrap items-center gap-3 rounded-lg border border-success/20 bg-success/5 px-3 py-2 text-xs"><CheckCircle2 className="h-4 w-4 text-success" /><span>Rev. {String(success.revision).padStart(2, "0")} emitida · {success.pages} páginas</span><a href={manualFileUrl(success.id)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline"><Eye className="h-3.5 w-3.5" />Visualizar</a><a href={manualFileUrl(success.id)} download={success.filename} className="inline-flex items-center gap-1 text-primary hover:underline"><Download className="h-3.5 w-3.5" />Baixar</a></div>}
     <div className="grid h-[calc(100dvh-240px)] min-h-[560px] min-w-0 grid-cols-[minmax(160px,220px)_minmax(0,1fr)] overflow-hidden rounded-xl border border-border xl:grid-cols-[240px_minmax(0,1fr)_250px]">
       {preview ? <DocumentNavigation sections={preview.document.sections} layout={preview.layout} activeId={activeId} expanded={expanded} onExpand={toggleExpanded} onNavigate={interactWithTopic} /> : <div className="border-r border-border bg-card p-4 text-sm text-muted-foreground">Sumário{loading && <p className="mt-4 text-xs">Carregando estrutura…</p>}</div>}
       <div className="flex min-h-0 min-w-0 flex-col bg-muted/50">

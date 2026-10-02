@@ -58,6 +58,6 @@ export async function POST(request: Request) {
       try { await discardUnissuedManualFile(blob.pathname) } catch (cleanupError) { console.error("Falha ao descartar arquivo de emissão não registrada", cleanupError) }
       throw error
     }
-    return NextResponse.json({ id, filename, pathname: blob.pathname, revision, sections, pages }, { status: 201 })
+    return NextResponse.json({ id, filename, revision, sections, pages }, { status: 201 })
   } catch (error) { return manualApiError(error) }
 }

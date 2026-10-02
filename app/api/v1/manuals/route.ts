@@ -58,8 +58,8 @@ export async function GET(request:Request){
         download_url:origin+"/api/v1/manuals/"+row.id+"/file",
       })),
       meta:{count:rows.length,limit,since:since?.toISOString()??null},
-    })
-  }catch(error){return publicApiFailure(error)}
+    },200,request)
+  }catch(error){return publicApiFailure(error,request)}
 }
 
-export function OPTIONS(){return publicOptions()}
+export function OPTIONS(request:Request){return publicOptions(request)}
