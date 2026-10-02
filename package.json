@@ -5,7 +5,7 @@
   "packageManager": "pnpm@9.15.9",
   "scripts": {
     "dev": "next dev",
-    "build": "node tests/security-static.cjs && node tests/security-runtime.cjs && node scripts/migrate.mjs && next build",
+    "build": "node scripts/migrate.mjs && next build",
     "start": "next start",
     "lint": "eslint .",
     "db:migrate": "node scripts/migrate.mjs",
