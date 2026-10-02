@@ -1,8 +1,9 @@
 import { createDecipheriv,scryptSync } from "node:crypto"
+import { eq } from "drizzle-orm"
 import { db } from "@/lib/db"
 import { platformIntegrations } from "@/lib/db/schema"
 
-export type PlatformAiRuntime={provider:"openai"|"google_ai";model:string;apiKey:string}
+export type PlatformAiRuntime={provider:"openai";model:string;apiKey:string}
 
 function encryptionKey(){
   const secret=process.env.INTEGRATION_ENCRYPTION_KEY||process.env.BETTER_AUTH_SECRET
@@ -19,10 +20,11 @@ function unseal(payload:string){
 }
 
 export async function getPlatformAiRuntime():Promise<PlatformAiRuntime|null>{
-  const row=(await db.select().from(platformIntegrations).limit(1))[0]
+  const row=(await db.select().from(platformIntegrations).where(eq(platformIntegrations.provider,"openai")).limit(1))[0]
   if(!row)return null
-  if(row.provider!=="openai"&&row.provider!=="google_ai")throw new Error("Provedor de IA inválido")
+  if(row.provider!=="openai")throw new Error("A integração de IA precisa ser configurada novamente como OpenAI")
+  if(row.status!=="verified")throw new Error("A integração OpenAI precisa ser testada e validada antes do processamento")
   const config=(row.config??{}) as {model?:string}
   if(!config.model?.trim())throw new Error("Modelo de IA não configurado")
-  return {provider:row.provider,model:config.model.trim(),apiKey:unseal(row.encryptedKey)}
+  return {provider:"openai",model:config.model.trim(),apiKey:unseal(row.encryptedKey)}
 }

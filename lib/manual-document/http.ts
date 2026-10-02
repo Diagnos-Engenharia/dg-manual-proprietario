@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server"
+import { InputValidationError } from "@/lib/security/input"
+import { RateLimitError } from "@/lib/security/rate-limit"
 
 export function manualApiError(error: unknown) {
+  if (error instanceof RateLimitError) return NextResponse.json({ error: error.message }, { status: 429, headers: { "Retry-After": String(error.retryAfterSeconds) } })
+  if (error instanceof InputValidationError) return NextResponse.json({ error: error.message }, { status: 400 })
   const message = error instanceof Error ? error.message : "Não foi possível processar o manual."
   if (error instanceof Error && "status" in error && typeof error.status === "number" && error.status >= 400 && error.status < 500) return NextResponse.json({ error: message }, { status: error.status })
   const status = /Não autenticado/i.test(message) ? 401 : /não encontrad[oa]/i.test(message) ? 404 : /permissão|autorizado|restrito|próprio|Quem editou|Quem enviou/i.test(message) ? 403 : /inválid[oa]|Informe|transição|Conteúdo|Recarregue|Atualize|validação|fora do escopo|A inclusão física/i.test(message) ? 400 : 500
