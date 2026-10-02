@@ -110,7 +110,8 @@ test("review finishing is yellow in preview only and official PDFs reject its co
   assert.ok(!JSON.stringify(buildFinishingDocument(input)).includes("ACABAMENTO_ÁRVORE"))
   for (const status of ["rascunho", "reprovado"] as const) {
     input.table!.status = status
-    assert.ok(!JSON.stringify(buildFinishingDocument(input, "preview")).includes("ACABAMENTO_ÁRVORE"))
+    assert.ok(JSON.stringify(buildFinishingDocument(input, "preview")).includes("ACABAMENTO_ÁRVORE"), status + " must remain visible in preview")
+    assert.ok(!JSON.stringify(buildFinishingDocument(input)).includes("ACABAMENTO_ÁRVORE"), status + " must stay out of official output")
   }
   assert.equal(assessFinishingReadiness(input).ok, false)
 })
