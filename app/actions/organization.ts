@@ -1,7 +1,7 @@
 'use server'
 
 import { createHash } from "node:crypto"
-import { and, count, eq, inArray, isNull, or } from "drizzle-orm"
+import { and, count, eq, inArray, isNull, or, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { db } from "@/lib/db"
 import { developmentAssignments, developments, members, organizations, organizationInvitations, user } from "@/lib/db/schema"
@@ -108,34 +108,84 @@ export async function getInvitationPreview(token: string) {
 
 export async function acceptOrganizationInvitation(token: string) {
   const current = await requireAuthenticatedUser()
-  const rows = await db.select().from(organizationInvitations).where(and(eq(organizationInvitations.tokenHash, hashToken(token)), eq(organizationInvitations.status, "pending"))).limit(1)
-  const invite = rows[0]
-  if (!invite || invite.expiresAt < new Date()) throw new Error("Convite inválido ou expirado")
-  if (invite.email !== current.email.toLowerCase()) throw new Error("Este convite foi enviado para outro e-mail")
+  const tokenHash = hashToken(token)
 
-  const existing=await db.select().from(members).where(and(eq(members.organizationId,invite.organizationId),eq(members.userId,current.id))).limit(1)
-  if(existing[0] && existing[0].status!=="active") throw new Error("Solicite a reativação do seu acesso")
-  const memberId=existing[0]?.id??crypto.randomUUID()
+  const accepted = await db.transaction(async (tx) => {
+    const rows = await tx.select().from(organizationInvitations).where(and(
+      eq(organizationInvitations.tokenHash, tokenHash),
+      eq(organizationInvitations.status, "pending"),
+    )).limit(1)
+    const invite = rows[0]
+    if (!invite || invite.expiresAt < new Date()) throw new Error("Convite inválido ou expirado")
+    if (invite.email !== current.email.toLowerCase()) throw new Error("Este convite foi enviado para outro e-mail")
 
-  if(invite.role==="admin"){
-    if(existing[0])await db.update(members).set({role:"admin",status:"active",lastAccessAt:new Date()}).where(eq(members.id,memberId))
-    else await db.insert(members).values({id:memberId,organizationId:invite.organizationId,userId:current.id,role:"admin",status:"active",lastAccessAt:new Date()})
-  }else{
-    const allowed=await db.select({id:developments.id}).from(developments).where(and(eq(developments.organizationId,invite.organizationId),inArray(developments.id,invite.developmentIds)))
-    if(!allowed.length||allowed.length!==invite.developmentIds.length)throw new Error("Empreendimento não disponível")
-    if(!existing[0])await db.insert(members).values({id:memberId,organizationId:invite.organizationId,userId:current.id,role:"editor",status:"active",lastAccessAt:new Date()})
-    if(existing[0] && isGlobalAdmin(existing[0].role))throw new Error("O usuário já possui acesso administrativo")
-    for(const developmentId of invite.developmentIds) {
-      await db.delete(developmentAssignments).where(and(eq(developmentAssignments.organizationId,invite.organizationId),eq(developmentAssignments.memberId,memberId),eq(developmentAssignments.developmentId,developmentId)))
-      await db.insert(developmentAssignments).values({id:crypto.randomUUID(),organizationId:invite.organizationId,developmentId,memberId,role:"editor"})
+    // Serializa aceites do mesmo usuário. Isso impede que dois convites/tabs concorrentes
+    // criem memberships duplicados para a mesma construtora.
+    await tx.execute(sql`select "id" from "user" where "id" = ${current.id} for update`)
+
+    const claimed = await tx.update(organizationInvitations)
+      .set({ status: "accepted", acceptedBy: current.id, acceptedAt: new Date() })
+      .where(and(
+        eq(organizationInvitations.id, invite.id),
+        eq(organizationInvitations.status, "pending"),
+      ))
+      .returning({ id: organizationInvitations.id })
+    if (!claimed[0]) throw new Error("Este convite já foi utilizado")
+
+    const existing = await tx.select().from(members).where(and(
+      eq(members.organizationId, invite.organizationId),
+      eq(members.userId, current.id),
+    )).limit(1)
+    if (existing[0] && existing[0].status !== "active") throw new Error("Solicite a reativação do seu acesso")
+    const memberId = existing[0]?.id ?? crypto.randomUUID()
+
+    if (invite.role === "admin") {
+      if (existing[0]) {
+        await tx.update(members).set({ role: "admin", status: "active", lastAccessAt: new Date() }).where(eq(members.id, memberId))
+      } else {
+        await tx.insert(members).values({ id: memberId, organizationId: invite.organizationId, userId: current.id, role: "admin", status: "active", lastAccessAt: new Date() })
+      }
+    } else {
+      const allowed = await tx.select({ id: developments.id }).from(developments).where(and(
+        eq(developments.organizationId, invite.organizationId),
+        inArray(developments.id, invite.developmentIds),
+      ))
+      if (!allowed.length || allowed.length !== invite.developmentIds.length) throw new Error("Empreendimento não disponível")
+      if (!existing[0]) {
+        await tx.insert(members).values({ id: memberId, organizationId: invite.organizationId, userId: current.id, role: "editor", status: "active", lastAccessAt: new Date() })
+      }
+      if (existing[0] && isGlobalAdmin(existing[0].role)) throw new Error("O usuário já possui acesso administrativo")
+
+      for (const developmentId of invite.developmentIds) {
+        await tx.delete(developmentAssignments).where(and(
+          eq(developmentAssignments.organizationId, invite.organizationId),
+          eq(developmentAssignments.memberId, memberId),
+          eq(developmentAssignments.developmentId, developmentId),
+        ))
+        await tx.insert(developmentAssignments).values({
+          id: crypto.randomUUID(),
+          organizationId: invite.organizationId,
+          developmentId,
+          memberId,
+          role: "editor",
+        })
+      }
     }
-  }
 
-  await db.update(organizationInvitations).set({ status: "accepted", acceptedBy: current.id, acceptedAt: new Date() }).where(eq(organizationInvitations.id, invite.id))
-  await recordAudit({ organizationId: invite.organizationId, actorId: current.id, action: "invitation.accepted", entityType: "invitation", entityId: invite.id, metadata:{role:invite.role} })
+    return invite
+  })
+
+  await recordAudit({
+    organizationId: accepted.organizationId,
+    actorId: current.id,
+    action: "invitation.accepted",
+    entityType: "invitation",
+    entityId: accepted.id,
+    metadata: { role: accepted.role },
+  })
   revalidatePath("/configuracoes")
   revalidatePath("/gerenciador")
-  return invite.organizationId
+  return accepted.organizationId
 }
 
 export async function createOrganization(input: { name: string; logo?: string; initials?: string; primaryColor?: string }) {
