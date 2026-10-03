@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "status": "passed",
-  "startedAt": "2026-10-03T18:21:56.699Z",
+  "startedAt": "2026-10-03T18:58:09.860Z",
   "stages": [
     {
       "name": "security",
       "status": "passed",
-      "durationMs": 374
+      "durationMs": 372
     },
     {
       "name": "security-runtime",
@@ -16,27 +16,27 @@
     {
       "name": "route-audit-regressions",
       "status": "passed",
-      "durationMs": 329
+      "durationMs": 332
     },
     {
       "name": "domain",
       "status": "passed",
-      "durationMs": 5780
+      "durationMs": 5793
     },
     {
       "name": "qa-contract",
       "status": "passed",
-      "durationMs": 476
+      "durationMs": 499
     },
     {
       "name": "csp",
       "status": "passed",
-      "durationMs": 527
+      "durationMs": 514
     },
     {
       "name": "migrations",
       "status": "passed",
-      "durationMs": 338
+      "durationMs": 149
     },
     {
       "name": "database-preflight",
@@ -45,32 +45,32 @@
     {
       "name": "clients-runtime",
       "status": "passed",
-      "durationMs": 2208
+      "durationMs": 2165
     },
     {
       "name": "organization-runtime",
       "status": "passed",
-      "durationMs": 1150
+      "durationMs": 1142
     },
     {
       "name": "audit-runtime",
       "status": "passed",
-      "durationMs": 909
+      "durationMs": 896
     },
     {
       "name": "bootstrap-policy",
       "status": "passed",
-      "durationMs": 59
+      "durationMs": 63
     },
     {
       "name": "build",
       "status": "passed",
-      "durationMs": 18397
+      "durationMs": 14737
     },
     {
       "name": "browser",
       "status": "passed",
-      "durationMs": 45901
+      "durationMs": 43630
     }
   ],
   "matrices": [
@@ -192,8 +192,8 @@
     "Chromium viewport/touch emulation; physical devices, Safari and Firefox not certified",
     "Protected hosted preview still requires its separate review"
   ],
-  "observedHead": "f91a1761fc7a2764ed30b9e21ee54f36c1c7e19a",
+  "observedHead": "981ccb9759918477c0b869781a7e9a6a8f79e6fc",
   "workingTreeDirty": true,
-  "fingerprint": "c7045e13a692ebecfffa397e148e9962f03039fef532cbdee5488f46db3e02cd",
-  "completedAt": "2026-10-03T18:23:13.727Z"
+  "fingerprint": "9c88858784a8395abb57c7128fed7ffda7bcee4d6620251b85479a746464daec",
+  "completedAt": "2026-10-03T18:59:20.844Z"
 }

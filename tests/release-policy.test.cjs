@@ -22,9 +22,10 @@ test('material fingerprint covers new source/test/config files and excludes docu
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dg-release-policy-'))
   try {
     fs.mkdirSync(path.join(root, 'app')); fs.mkdirSync(path.join(root, 'tests')); fs.mkdirSync(path.join(root, 'scripts')); fs.mkdirSync(path.join(root, '.qa'))
-    fs.writeFileSync(path.join(root, 'app', 'page.tsx'), 'source\r\nline\r\n'); fs.writeFileSync(path.join(root, 'package.json'), '{}')
+    fs.writeFileSync(path.join(root, 'app', 'page.tsx'), 'source\r\nline\r\n'); fs.writeFileSync(path.join(root, 'scripts', 'migration-policy.d.mts'), 'declare const migration: string\r\n'); fs.writeFileSync(path.join(root, 'package.json'), '{}')
     const before = materialFingerprint(root)
     fs.writeFileSync(path.join(root, 'app', 'page.tsx'), 'source\nline\n'); assert.equal(materialFingerprint(root), before, 'Windows CRLF and Linux LF must attest the same material sources')
+    fs.writeFileSync(path.join(root, 'scripts', 'migration-policy.d.mts'), 'declare const migration: string\n'); assert.equal(materialFingerprint(root), before, 'TypeScript .mts declaration files must normalize Windows CRLF and Linux LF')
     fs.writeFileSync(path.join(root, 'README.md'), 'doc'); fs.writeFileSync(path.join(root, '.qa', 'release-attestation.json'), '{}')
     fs.writeFileSync(path.join(root, 'scripts', 'RELEASE.md'), 'operational documentation')
     assert.equal(materialFingerprint(root), before)

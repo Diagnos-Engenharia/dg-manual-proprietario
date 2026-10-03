@@ -32,7 +32,7 @@ function materialFingerprint(root) {
   for (const { filename, relative } of entries) {
     hash.update(relative); hash.update('\0')
     const bytes = fs.readFileSync(filename)
-    hash.update(/\.(?:tsx?|jsx?|mjs|cjs|json|ya?ml|css|html|svg|txt|sql|xml|md)$/.test(filename) || path.basename(filename).startsWith('.') ? bytes.toString('utf8').replace(/\r\n/g, '\n') : bytes)
+    hash.update(/\.(?:tsx?|mts|cts|jsx?|mjs|cjs|json|ya?ml|css|html|svg|txt|sql|xml|md)$/.test(filename) || path.basename(filename).startsWith('.') ? bytes.toString('utf8').replace(/\r\n/g, '\n') : bytes)
     hash.update('\0')
   }
   return hash.digest('hex')

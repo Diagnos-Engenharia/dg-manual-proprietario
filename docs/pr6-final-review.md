@@ -5,7 +5,7 @@
 - Repositório: `Diagnos-Engenharia/dg-manual-proprietario`, PR #6.
 - Base: `282ee5d42119891247923f911edc9e15694e4ca8`.
 - HEAD revisado: `f91a1761fc7a2764ed30b9e21ee54f36c1c7e19a`.
-- Fingerprint do material: `c7045e13a692ebecfffa397e148e9962f03039fef532cbdee5488f46db3e02cd`.
+- Fingerprint do snapshot DSI/QA: `c7045e13a692ebecfffa397e148e9962f03039fef532cbdee5488f46db3e02cd`.
 - DSI e QA revisaram o mesmo snapshot independentemente, sem editar código ou PR.
 
 ## Resultado
@@ -29,10 +29,11 @@ A implementação e os gates locais estão aprovados para revisão da PR, mas o 
 
 ## Validação local observada
 
-- `pnpm test:release`: 14 etapas aprovadas; inclui migrations `0001`–`0021` no PostgreSQL UTF8 isolado, 76 testes de domínio, suítes runtime, build de produção e fluxos de navegador.
+- Correção do gate após falha no Preview: o fingerprint passou a normalizar CRLF/LF também em arquivos TypeScript `.mts` e `.cts`, além de `.ts`/`.tsx`. O teste de regressão falhou antes da correção e passou depois.
+- `node scripts/run-release-gate.cjs`: 14/14 etapas aprovadas no snapshot atualizado; fingerprint `9c88858784a8395abb57c7128fed7ffda7bcee4d6620251b85479a746464daec`. Inclui migrations `0001`–`0021` no PostgreSQL UTF8 isolado, 76 testes de domínio, suítes runtime, build de produção e fluxos de navegador.
+- `corepack pnpm run build` com o `pnpm@9.15.9` declarado no projeto: `test:gate`, verificação do fingerprint e build Next.js aprovados.
 - Matrizes Chromium: interface interna e portal de clientes em 390×844, 768×1024 e 1600×1100.
-- `pnpm run build`: gate estático/domínio, verificação do fingerprint/atestado e build Next.js/TypeScript aprovados.
 - Testes direcionados de Databook: 3/3 aprovados para a correção final.
 - O servidor temporário de teste rodou apenas em `localhost:3000`, com banco e arquivos fictícios isolados, e foi encerrado pelo runner.
 
-Não houve alteração em dados remotos, publicação, merge ou aprovação de produção.
+Nenhum dado de produção foi alterado; não houve deploy de produção, merge ou aprovação de produção.
