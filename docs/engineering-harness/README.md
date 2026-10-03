@@ -11,7 +11,7 @@ DEH is the repository's review and validation process for changes to the DG Manu
 5. After implementation, run targeted checks and the applicable local functional/release gate. Record the final SHA, rerun DSI and Diagnos QA against that exact snapshot, and repeat other lenses when changed scope warrants it. Mark a check passed only after executing it; retain its command, result, and artifact or output reference where available.
 6. Exercise affected flows in Chromium at mobile, tablet, and desktop sizes. Record scenarios, results, viewport, and evidence. State what the browser evidence demonstrates and what it leaves unverified.
 7. Inspect the PR's Vercel Preview when it is available: check health, login, and affected flows. A deployment or `Ready` status alone does not establish functional QA. If no accessible Preview exists, record it as unavailable or unverified.
-8. Publish the compact report described below and leave merge to explicit human approval.
+8. Save the compact report as `deh-pr-<number>-<head-sha>.json` in the task's designated output directory outside the repository (for example, this Codex task's `outputs/` directory). Deliver that artifact with the review summary; do not commit it, since doing so would change the snapshot it records. Leave merge to explicit human approval.
 
 ## Tool and environment boundaries
 
@@ -26,7 +26,9 @@ DEH is the repository's review and validation process for changes to the DG Manu
 
 Each review records its lens, reviewer, state, and the required `snapshotRef` `#/snapshot`, which points to the report's one global snapshot and its base/head SHAs. Findings include a priority, condition, impact, evidence, and disposition. Evidence records its kind and a concise claim, with an artifact or location when available. Static inspection, executed commands, browser observations, Preview deployment state, self-declared attestations, and human approval are distinct evidence kinds; one does not imply another. A locally generated release attestation is self-declared and does not prove that execution was independent or occurred in a sanitized environment.
 
-Checks record whether they passed, failed, were blocked, or were not run; a `passed` check requires evidence. Visual records capture viewport and scenario results, and a `passed` scenario requires evidence. Preview records availability and deployment state separately from functional checks; `functionalQa: passed` requires evidence. Divergences preserve unresolved reviewer differences; limitations identify untested or inaccessible areas. `docs/engineering-harness/review-output.schema.json` is the machine-readable contract. It uses JSON Schema only and adds no validator dependency.
+Checks record whether they passed, failed, were blocked, or were not run; a passed command check includes the command and evidence kind `command`. Passed checks cannot rely only on self-attestation or human approval. Visual records capture viewport and scenario results, and a passed scenario requires `browser` evidence. Preview availability and deployment state are recorded separately from functional checks; observed/failed deployments require `deployment` or `preview` evidence, while `functionalQa: passed` requires `browser` or `preview` evidence. Divergences preserve unresolved reviewer differences; limitations identify untested or inaccessible areas. `docs/engineering-harness/review-output.schema.json` is the machine-readable contract. Use an already available JSON Schema validator to check the completed report when possible; do not install a dependency for DEH. If none is available, validate JSON syntax and the repository's structural assertions, then record full instance validation as `not_run` with that limitation.
+
+For example, the run-specific report for PR 6 is delivered outside the repository as `outputs/deh-pr-6-<head-sha>.json`; the review summary links to it so the recorded snapshot remains traceable.
 
 ## Report outline
 

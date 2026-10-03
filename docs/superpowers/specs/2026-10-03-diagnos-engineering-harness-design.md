@@ -48,4 +48,4 @@ The JSON Schema in `docs/engineering-harness/review-output.schema.json` defines 
 2. The handbook describes the ordered review, synthesis, implementation, revalidation, and evidence flow, including no-Actions, no-main, RTK, Superpowers, and Preview boundaries.
 3. The JSON Schema parses and covers snapshot identity, six review lenses, finding evidence, checks, visual evidence, Preview, and limitations.
 4. Automated release-policy tests reject `main`/detached branch names and prove `hooks/` changes affect the fingerprint.
-5. No production code, external data, Action workflow, or dependency is changed.
+5. No product/application runtime code, external data, Action workflow, or dependency is changed. Harness policy scripts and their tests may change to enforce branch and fingerprint rules.

@@ -133,6 +133,8 @@
         "evidence": { "$ref": "#/$defs/evidence" }
       },
       "allOf": [
+        { "if": { "properties": { "status": { "enum": ["available", "failed"] } }, "required": ["status"] }, "then": { "required": ["evidence"], "properties": { "evidence": { "properties": { "kind": { "enum": ["deployment", "preview"] } }, "required": ["kind"] } } } },
+        { "if": { "properties": { "deploymentState": { "enum": ["ready", "building", "error"] } }, "required": ["deploymentState"] }, "then": { "required": ["evidence"], "properties": { "evidence": { "properties": { "kind": { "enum": ["deployment", "preview"] } }, "required": ["kind"] } } } },
         { "if": { "properties": { "functionalQa": { "const": "passed" } }, "required": ["functionalQa"] }, "then": { "required": ["evidence"], "properties": { "evidence": { "properties": { "kind": { "enum": ["browser", "preview"] } }, "required": ["kind"] } } } }
       ]
     },

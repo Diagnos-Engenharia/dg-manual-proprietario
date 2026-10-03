@@ -1,5 +1,7 @@
 # PR #6 — revisão final DSI e QA
 
+> **Relatório histórico, não é a validação do HEAD atual.** O alvo de revisão abaixo é `f91a1761fc7a2764ed30b9e21ee54f36c1c7e19a`. O atestado associado à alegação de 14/14 etapas informa outro `observedHead` (`16f20f09…`) e `workingTreeDirty: true`, portanto essa execução não comprova um commit limpo específico nem o estado atual da branch. Consulte o relatório DEH entregue com a revisão atual para os resultados e bloqueios do HEAD vigente.
+
 ## Alvo revisado
 
 - Repositório: `Diagnos-Engenharia/dg-manual-proprietario`, PR #6.
