@@ -98,7 +98,10 @@ export async function listManagedOrganizations(){
     membersByOrganization.set(person.organizationId,[...(membersByOrganization.get(person.organizationId)??[]),person])
   }
   const projectsByOrganization=new Map<string,Array<{id:string;name:string}>>()
-  for(const project of projects)projectsByOrganization.set(project.organizationId,[...(projectsByOrganization.get(project.organizationId)??[]),{id:project.id,name:project.name}])
+  for(const project of projects){
+    if(!project.organizationId)continue
+    projectsByOrganization.set(project.organizationId,[...(projectsByOrganization.get(project.organizationId)??[]),{id:project.id,name:project.name}])
+  }
   return companies.map(company=>({
     id:company.id,
     name:company.name,
