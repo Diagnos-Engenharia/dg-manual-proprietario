@@ -134,12 +134,12 @@ export async function createManagerAccess(input:{
     const existing=(await db.select({
       userId:user.id,
       memberId:members.id,
+      accessStatus:user.accessStatus,
     }).from(user)
       .leftJoin(members,and(eq(members.userId,user.id),eq(members.organizationId,input.organizationId)))
       .where(eq(user.email,email)).limit(1))[0]
 
     if(existing?.userId){
-      await db.update(user).set({accessStatus:"active",updatedAt:new Date()}).where(eq(user.id,existing.userId))
       const memberId=existing.memberId??crypto.randomUUID()
       if(existing.memberId){
         await ensureAdministratorCoverage(memberId,input.organizationId,input.role,false)
@@ -151,10 +151,16 @@ export async function createManagerAccess(input:{
       await recordAudit({
         organizationId:input.organizationId,actorId:context.user.id,
         action:"manager.access_linked",entityType:"member",entityId:memberId,
-        metadata:{email,role:input.role,developmentIds:selected},
+        metadata:{email,role:input.role,developmentIds:selected,accountStatus:existing.accessStatus},
       })
       revalidatePath("/gerenciador")
-      return {ok:true,message:"Acesso vinculado e habilitado com sucesso.",data:{mode:"linked"}}
+      return {
+        ok:true,
+        message:existing.accessStatus==="disabled"
+          ?"Acesso vinculado. A conta global permanece inativa; habilite-a explicitamente no switch para liberar o login."
+          :"Acesso vinculado com sucesso.",
+        data:{mode:"linked"},
+      }
     }
 
     await db.update(organizationInvitations).set({status:"canceled",canceledAt:new Date()}).where(and(
