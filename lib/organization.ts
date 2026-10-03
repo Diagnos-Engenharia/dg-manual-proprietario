@@ -88,12 +88,14 @@ export async function setActiveOrganization(organizationId:string){
 
 export async function getActiveMembership() {
   const choices=await getOrganizationChoices()
-  if(!choices.activeOrganizationId)return null
+  const selectedOrganizationId=choices.activeOrganizationId??choices.organizations[0]?.id??null
+  if(!selectedOrganizationId)return null
+  if(!choices.activeOrganizationId)await setActiveOrganization(selectedOrganizationId)
   const rows=await db.select({ member: members, organization: organizations }).from(members)
     .innerJoin(organizations,eq(members.organizationId,organizations.id))
     .where(and(
       eq(members.userId,choices.user.id),
-      eq(members.organizationId,choices.activeOrganizationId),
+      eq(members.organizationId,selectedOrganizationId),
       eq(members.status,"active"),
     )).limit(1)
   if(!rows[0])return null
