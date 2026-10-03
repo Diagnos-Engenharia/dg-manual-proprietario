@@ -22,9 +22,9 @@ DEH is the repository's review and validation process for changes to the DG Manu
 
 ## Review and evidence contract
 
-Each review records its lens, reviewer, state, and the same base/head snapshot. Findings include a priority, condition, impact, evidence, and disposition. Evidence records its kind and a concise claim, with an artifact or location when available. Static inspection, executed commands, browser observations, Preview deployment state, self-declared attestations, and human approval are distinct evidence kinds; one does not imply another.
+Each review records its lens, reviewer, state, and the required `snapshotRef` `#/snapshot`, which points to the report's one global snapshot and its base/head SHAs. Findings include a priority, condition, impact, evidence, and disposition. Evidence records its kind and a concise claim, with an artifact or location when available. Static inspection, executed commands, browser observations, Preview deployment state, self-declared attestations, and human approval are distinct evidence kinds; one does not imply another.
 
-Checks record whether they passed, failed, were blocked, or were not run. Visual records capture viewport and scenario results. Preview records availability and deployment state separately from functional checks. Divergences preserve unresolved reviewer differences; limitations identify untested or inaccessible areas. `docs/engineering-harness/review-output.schema.json` is the machine-readable contract. It uses JSON Schema only and adds no validator dependency.
+Checks record whether they passed, failed, were blocked, or were not run; a `passed` check requires evidence. Visual records capture viewport and scenario results, and a `passed` scenario requires evidence. Preview records availability and deployment state separately from functional checks; `functionalQa: passed` requires evidence. Divergences preserve unresolved reviewer differences; limitations identify untested or inaccessible areas. `docs/engineering-harness/review-output.schema.json` is the machine-readable contract. It uses JSON Schema only and adds no validator dependency.
 
 ## Report outline
 

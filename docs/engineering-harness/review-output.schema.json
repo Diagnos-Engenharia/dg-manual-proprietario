@@ -45,13 +45,12 @@
     "reviewRole": { "type": "string", "enum": ["DSI", "Diagnos QA", "DRAEL", "LURIEL", "Security", "Code Review"] },
     "review": {
       "type": "object", "additionalProperties": false,
-      "required": ["role", "reviewer", "status", "baseSha", "headSha", "findingIds"],
+      "required": ["role", "reviewer", "status", "snapshotRef", "findingIds"],
       "properties": {
         "role": { "$ref": "#/$defs/reviewRole" },
         "reviewer": { "type": "string", "minLength": 1 },
         "status": { "type": "string", "enum": ["complete", "blocked", "not_run"] },
-        "baseSha": { "type": "string", "minLength": 7 },
-        "headSha": { "type": "string", "minLength": 7 },
+        "snapshotRef": { "const": "#/snapshot", "description": "Every review uses the report's single global snapshot, including its baseSha and headSha." },
         "findingIds": { "type": "array", "items": { "type": "string" } },
         "note": { "type": "string" }
       }
@@ -87,7 +86,10 @@
         "status": { "type": "string", "enum": ["passed", "failed", "blocked", "not_run"] },
         "evidence": { "$ref": "#/$defs/evidence" },
         "note": { "type": "string" }
-      }
+      },
+      "allOf": [
+        { "if": { "properties": { "status": { "const": "passed" } }, "required": ["status"] }, "then": { "required": ["evidence"] } }
+      ]
     },
     "visual": {
       "type": "object", "additionalProperties": false,
@@ -113,7 +115,10 @@
         "status": { "type": "string", "enum": ["passed", "failed", "blocked", "not_run"] },
         "evidence": { "$ref": "#/$defs/evidence" },
         "note": { "type": "string" }
-      }
+      },
+      "allOf": [
+        { "if": { "properties": { "status": { "const": "passed" } }, "required": ["status"] }, "then": { "required": ["evidence"] } }
+      ]
     },
     "preview": {
       "type": "object", "additionalProperties": false,
@@ -125,7 +130,10 @@
         "url": { "type": "string", "format": "uri" },
         "note": { "type": "string" },
         "evidence": { "$ref": "#/$defs/evidence" }
-      }
+      },
+      "allOf": [
+        { "if": { "properties": { "functionalQa": { "const": "passed" } }, "required": ["functionalQa"] }, "then": { "required": ["evidence"] } }
+      ]
     },
     "divergence": {
       "type": "object", "additionalProperties": false,
