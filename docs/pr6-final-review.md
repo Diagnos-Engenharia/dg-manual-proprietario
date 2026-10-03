@@ -30,9 +30,9 @@ A implementação e os gates locais estão aprovados para revisão da PR, mas o 
 ## Validação local observada
 
 - Correção do gate após falha no Preview: o fingerprint passou a normalizar CRLF/LF também em arquivos TypeScript `.mts` e `.cts`, além de `.ts`/`.tsx`. O teste de regressão falhou antes da correção e passou depois.
-- `node scripts/run-release-gate.cjs`: 14/14 etapas aprovadas no snapshot atualizado; fingerprint `c15851ad82d4427bacba5db8b079365b7dbe3037fe590804dd7f6b1970bf1e09`. Inclui migrations `0001`–`0021` no PostgreSQL UTF8 isolado, 76 testes de domínio, suítes runtime, build de produção e fluxos de navegador.
+- `node scripts/run-release-gate.cjs`: 14/14 etapas aprovadas no snapshot atualizado; fingerprint `76b1a6b0deac0cded45125dd5de38c00d8b1aa26ef59d70418d75a51df9fbad3`. Inclui migrations `0001`–`0021` no PostgreSQL UTF8 isolado, 76 testes de domínio, suítes runtime, build de produção e fluxos de navegador.
 - `corepack pnpm run build` com o `pnpm@9.15.9` declarado no projeto: `test:gate`, verificação do fingerprint e build Next.js aprovados.
-- Após a falha do Preview, o gate passou a gravar SHA-256 por arquivo no atestado e a apontar os caminhos que mudaram entre o gate e o build. O último log remoto disponível comparava o fingerprint local `9c888…` com `eee6…`, sem identificar os arquivos; é necessário inspecionar o próximo build da Vercel com o manifesto atualizado antes de declarar a falha resolvida.
+- Após a falha do Preview, o manifesto por arquivo identificou `vercel.json` como a única diferença; esse arquivo não está no commit e não existe no checkout local, mas aparece no ambiente de build remoto. O verificador ignora essa cópia externa somente quando `VERCEL=1` e o caminho não existe no manifesto atestado; se `vercel.json` estiver no snapshot, segue protegido pelo fingerprint. O teste dessa regra passou e a simulação do verificador com o arquivo injetado foi aprovada.
 - Matrizes Chromium: interface interna e portal de clientes em 390×844, 768×1024 e 1600×1100.
 - Testes direcionados de Databook: 3/3 aprovados para a correção final.
 - O servidor temporário de teste rodou apenas em `localhost:3000`, com banco e arquivos fictícios isolados, e foi encerrado pelo runner.

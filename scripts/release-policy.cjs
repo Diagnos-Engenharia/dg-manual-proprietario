@@ -15,7 +15,7 @@ function isolatedConfig(env) {
   return { database, origin: 'http://localhost:3000', files: path.resolve(env.DG_PREVIEW_FILES_DIR) }
 }
 
-function materialSources(root) {
+function materialSources(root, excludedPaths = []) {
   const files = []
   function walk(directory) {
     if (!fs.existsSync(directory)) return
@@ -28,7 +28,10 @@ function materialSources(root) {
   }
   for (const directory of ['app', 'components', 'lib', 'migrations', 'scripts', 'tests', 'public']) walk(path.join(root, directory))
   for (const name of fs.readdirSync(root)) if ((/\.(?:[cm]?[jt]s|json|ya?ml)$/.test(name) || ['.npmrc', '.browserslistrc'].includes(name)) && name !== 'next-env.d.ts' && fs.statSync(path.join(root, name)).isFile()) files.push(path.join(root, name))
-  return files.map(filename => ({ filename, relative: path.relative(root, filename).split(path.sep).join('/') })).sort((a, b) => a.relative < b.relative ? -1 : a.relative > b.relative ? 1 : 0)
+  const excluded = new Set(excludedPaths)
+  return files.map(filename => ({ filename, relative: path.relative(root, filename).split(path.sep).join('/') }))
+    .filter(({ relative }) => !excluded.has(relative))
+    .sort((a, b) => a.relative < b.relative ? -1 : a.relative > b.relative ? 1 : 0)
 }
 
 function materialContent(filename) {
@@ -38,8 +41,8 @@ function materialContent(filename) {
     : bytes
 }
 
-function materialManifest(root) {
-  return materialSources(root).map(({ filename, relative }) => ({
+function materialManifest(root, excludedPaths = []) {
+  return materialSources(root, excludedPaths).map(({ filename, relative }) => ({
     path: relative,
     sha256: createHash('sha256').update(materialContent(filename)).digest('hex'),
   }))
@@ -53,15 +56,25 @@ function changedMaterialFiles(previous, current) {
     .sort()
 }
 
-function materialFingerprint(root) {
+function materialFingerprint(root, excludedPaths = []) {
   const hash = createHash('sha256')
-  const entries = materialSources(root)
+  const entries = materialSources(root, excludedPaths)
   for (const { filename, relative } of entries) {
     hash.update(relative); hash.update('\0')
     hash.update(materialContent(filename))
     hash.update('\0')
   }
   return hash.digest('hex')
+}
+
+function materialSnapshot(root, attestedManifest, env) {
+  const attestedPaths = new Set((Array.isArray(attestedManifest) ? attestedManifest : []).map(file => file.path))
+  const excludedPaths = env?.VERCEL && !attestedPaths.has('vercel.json') ? ['vercel.json'] : []
+  return {
+    fingerprint: materialFingerprint(root, excludedPaths),
+    materialFiles: materialManifest(root, excludedPaths),
+    excludedPaths,
+  }
 }
 
 function validateAttestation(attestation, fingerprint, currentManifest) {
@@ -78,4 +91,4 @@ function validateAttestation(attestation, fingerprint, currentManifest) {
   }
   return true
 }
-module.exports = { stages, isolatedConfig, materialFingerprint, materialManifest, changedMaterialFiles, validateAttestation }
+module.exports = { stages, isolatedConfig, materialFingerprint, materialManifest, materialSnapshot, changedMaterialFiles, validateAttestation }

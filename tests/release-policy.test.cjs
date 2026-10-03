@@ -3,7 +3,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
-const { stages, isolatedConfig, materialFingerprint, materialManifest, changedMaterialFiles, validateAttestation } = require('../scripts/release-policy.cjs')
+const { stages, isolatedConfig, materialFingerprint, materialManifest, materialSnapshot, changedMaterialFiles, validateAttestation } = require('../scripts/release-policy.cjs')
 const env = { DG_TEST_DATABASE_URL: 'postgres://test:test@localhost:55439/dg_review_utf8', DG_PREVIEW_FILES_DIR: path.join(os.tmpdir(), 'dg-review-files') }
 const passed = () => ({ schemaVersion: 1, status: 'passed', fingerprint: 'abc', stages: stages.map(name => ({ name, status: 'passed' })), matrices: ['internal', 'clients'].map(suite => ({ suite, results: ['mobile', 'tablet', 'desktop'].map(viewport => ({ viewport, passed: ['login', 'read', 'navigation', 'dialog', 'containment'] })) })) })
 
@@ -42,6 +42,35 @@ test('material fingerprint covers new source/test/config files and excludes docu
     const target = fs.realpathSync(root)
     assert.equal(path.dirname(target), fs.realpathSync(os.tmpdir()))
     assert.ok(path.basename(target).startsWith('dg-release-policy-'))
+    fs.rmSync(target, { recursive: true, force: true })
+  }
+})
+
+test('hosted verification ignores only Vercel config absent from the attested source tree', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dg-vercel-source-'))
+  try {
+    fs.mkdirSync(path.join(root, 'app'))
+    fs.writeFileSync(path.join(root, 'app', 'page.tsx'), 'source\n')
+    const sourceManifest = materialManifest(root)
+    const sourceFingerprint = materialFingerprint(root)
+    fs.writeFileSync(path.join(root, 'vercel.json'), '{"generated":true}\n')
+
+    const generated = materialSnapshot(root, sourceManifest, { VERCEL: '1' })
+    assert.equal(generated.fingerprint, sourceFingerprint)
+    assert.deepEqual(generated.materialFiles, sourceManifest)
+    const unexpectedLocalConfig = materialSnapshot(root, sourceManifest, {})
+    assert.notEqual(unexpectedLocalConfig.fingerprint, sourceFingerprint)
+    assert.deepEqual(changedMaterialFiles(sourceManifest, unexpectedLocalConfig.materialFiles), ['vercel.json'])
+
+    const versionedManifest = materialManifest(root)
+    const versionedFingerprint = materialFingerprint(root)
+    fs.writeFileSync(path.join(root, 'vercel.json'), '{"generated":false}\n')
+    const versioned = materialSnapshot(root, versionedManifest, { VERCEL: '1' })
+    assert.notEqual(versioned.fingerprint, versionedFingerprint)
+    assert.deepEqual(changedMaterialFiles(versionedManifest, versioned.materialFiles), ['vercel.json'])
+  } finally {
+    const target = fs.realpathSync(root)
+    assert.equal(path.dirname(target), fs.realpathSync(os.tmpdir()))
     fs.rmSync(target, { recursive: true, force: true })
   }
 })

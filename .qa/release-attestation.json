@@ -1,42 +1,42 @@
 {
   "schemaVersion": 1,
   "status": "passed",
-  "startedAt": "2026-10-03T19:11:22.225Z",
+  "startedAt": "2026-10-03T19:23:05.131Z",
   "stages": [
     {
       "name": "security",
       "status": "passed",
-      "durationMs": 372
+      "durationMs": 384
     },
     {
       "name": "security-runtime",
       "status": "passed",
-      "durationMs": 372
+      "durationMs": 360
     },
     {
       "name": "route-audit-regressions",
       "status": "passed",
-      "durationMs": 370
+      "durationMs": 344
     },
     {
       "name": "domain",
       "status": "passed",
-      "durationMs": 5890
+      "durationMs": 6099
     },
     {
       "name": "qa-contract",
       "status": "passed",
-      "durationMs": 467
+      "durationMs": 482
     },
     {
       "name": "csp",
       "status": "passed",
-      "durationMs": 515
+      "durationMs": 523
     },
     {
       "name": "migrations",
       "status": "passed",
-      "durationMs": 148
+      "durationMs": 146
     },
     {
       "name": "database-preflight",
@@ -45,32 +45,32 @@
     {
       "name": "clients-runtime",
       "status": "passed",
-      "durationMs": 2186
+      "durationMs": 2275
     },
     {
       "name": "organization-runtime",
       "status": "passed",
-      "durationMs": 1052
+      "durationMs": 1241
     },
     {
       "name": "audit-runtime",
       "status": "passed",
-      "durationMs": 988
+      "durationMs": 1028
     },
     {
       "name": "bootstrap-policy",
       "status": "passed",
-      "durationMs": 64
+      "durationMs": 59
     },
     {
       "name": "build",
       "status": "passed",
-      "durationMs": 15275
+      "durationMs": 15322
     },
     {
       "name": "browser",
       "status": "passed",
-      "durationMs": 41923
+      "durationMs": 41889
     }
   ],
   "matrices": [
@@ -192,7 +192,7 @@
     "Chromium viewport/touch emulation; physical devices, Safari and Firefox not certified",
     "Protected hosted preview still requires its separate review"
   ],
-  "observedHead": "8ba2139795f5ff7b2af6f1dd65b9ca7aaa39fbd7",
+  "observedHead": "16f20f09e8b662e8d637017d92d51449fa472d0e",
   "workingTreeDirty": true,
   "materialFiles": [
     {
@@ -1125,7 +1125,7 @@
     },
     {
       "path": "scripts/release-policy.cjs",
-      "sha256": "005e991d3772e4638745475c36f03b6a5d11c186afd0a86614dff86b9e44815c"
+      "sha256": "63e3df3c084e18e23f622ccd3124219807c150642d2519c6313605ed2a8222cc"
     },
     {
       "path": "scripts/run-local-e2e.cjs",
@@ -1141,7 +1141,7 @@
     },
     {
       "path": "scripts/verify-release.cjs",
-      "sha256": "de1cbac84c55bcfc9e43905bfd97a1380ec0efa87fec0b5922212386c751ef6e"
+      "sha256": "027a6f04cbe27ef7ac2fe86ac2edd0b831b4c99f805027a2e4e0e75c637d4ce1"
     },
     {
       "path": "tests/audit-runtime.cjs",
@@ -1281,7 +1281,7 @@
     },
     {
       "path": "tests/release-policy.test.cjs",
-      "sha256": "f896502043a7fb4345d30ad30c957020c61ccc55a3ee58222f11868a092b94f8"
+      "sha256": "5399ccd0d7b882332b6177ffab2592688128dcf7f2f03b87d6d793de60c1e4c2"
     },
     {
       "path": "tests/responsive-contract.cjs",
@@ -1312,6 +1312,6 @@
       "sha256": "f2fc3309a966ecb35a51a17b2b7ab03c92d88b7c663ddbed5cb626f597c83277"
     }
   ],
-  "fingerprint": "c15851ad82d4427bacba5db8b079365b7dbe3037fe590804dd7f6b1970bf1e09",
-  "completedAt": "2026-10-03T19:12:32.132Z"
+  "fingerprint": "76b1a6b0deac0cded45125dd5de38c00d8b1aa26ef59d70418d75a51df9fbad3",
+  "completedAt": "2026-10-03T19:24:15.648Z"
 }
