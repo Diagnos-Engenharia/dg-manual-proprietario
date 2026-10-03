@@ -86,14 +86,21 @@ export async function listManagedOrganizations(){
     db.select({id:developments.id,organizationId:developments.organizationId,name:developments.name}).from(developments),
     db.select({memberId:developmentAssignments.memberId,developmentId:developmentAssignments.developmentId}).from(developmentAssignments),
   ])
+  const grantsByMember=new Map<string,string[]>()
+  for(const grant of grants)grantsByMember.set(grant.memberId,[...(grantsByMember.get(grant.memberId)??[]),grant.developmentId])
+  const membersByOrganization=new Map<string,typeof roster>()
+  for(const person of roster){
+    if(person.userId===manager.user.id&&person.role==="owner")continue
+    membersByOrganization.set(person.organizationId,[...(membersByOrganization.get(person.organizationId)??[]),person])
+  }
+  const projectsByOrganization=new Map<string,Array<{id:string;name:string}>>()
+  for(const project of projects)projectsByOrganization.set(project.organizationId,[...(projectsByOrganization.get(project.organizationId)??[]),{id:project.id,name:project.name}])
   return companies.map(company=>({
     id:company.id,
     name:company.name,
     logo:company.logo,
-    members:roster
-      .filter(person=>person.organizationId===company.id && !(person.userId===manager.user.id&&person.role==="owner"))
-      .map(person=>({...person,assignments:grants.filter(grant=>grant.memberId===person.id).map(grant=>grant.developmentId)})),
-    developments:projects.filter(project=>project.organizationId===company.id).map(({id,name})=>({id,name})),
+    members:(membersByOrganization.get(company.id)??[]).map(person=>({...person,assignments:grantsByMember.get(person.id)??[]})),
+    developments:projectsByOrganization.get(company.id)??[],
   }))
 }
 
