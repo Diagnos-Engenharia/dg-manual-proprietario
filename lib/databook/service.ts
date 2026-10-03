@@ -5,7 +5,8 @@ import { canEditContent, requireDevelopmentAccess } from "@/lib/organization"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
 import { databookNameKey, DATABOOK_GENERAL_FOLDER, normalizeDatabookName, resolveDatabookFolders, type DatabookCatalog, type DatabookFile, type DatabookFolder } from "./types"
 import { DatabookError, signUploadTicket, uploadPath, validateFileMetadata, verifyUploadTicket, type UploadTicket } from "./ticket"
-import { hasLocalDatabookStorage, headDatabookFile, readDatabookFileHead, removeDatabookFile, requireDatabookStorage } from "./storage"\nimport { assertDatabookContent } from "@/lib/security/uploads"
+import { hasLocalDatabookStorage, headDatabookFile, readDatabookFileHead, removeDatabookFile, requireDatabookStorage } from "./storage"
+import { assertDatabookContent } from "@/lib/security/uploads"
 
 type Context = Awaited<ReturnType<typeof requireDevelopmentAccess>>
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
