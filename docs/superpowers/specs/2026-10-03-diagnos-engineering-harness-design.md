@@ -37,6 +37,7 @@ The JSON Schema in `docs/engineering-harness/review-output.schema.json` defines 
 
 - Preserve the generated Next.js section in root `AGENTS.md`.
 - The release runner must reject `main`, detached HEAD, and unavailable branch identity before it creates or rewrites the tracked attestation.
+- Release-stage child processes receive only allowlisted OS plumbing and deterministic local fixture variables; artifact/private-file paths are checked through existing symlink components and must resolve outside the checkout. The runner itself is not a sandbox and still requires a sanitized launcher environment.
 - Release fingerprints must cover active application code under `hooks/` as well as existing source directories.
 - RTK is optional and manual. Verify that it is Rust Token Killer before use, prefix only supported commands, and rerun a failing or evidence-critical command without filtering (or through `rtk proxy`). Do not let compact output replace artifacts or detailed diagnostics.
 - Do not install tools globally or add dependencies for this documentation-first harness. Follow the project's existing lockfile and local release gate when their prerequisites are available.

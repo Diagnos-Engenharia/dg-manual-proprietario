@@ -52,8 +52,12 @@
         "status": { "type": "string", "enum": ["complete", "blocked", "not_run"] },
         "snapshotRef": { "const": "#/snapshot", "description": "Every review uses the report's single global snapshot, including its baseSha and headSha." },
         "findingIds": { "type": "array", "items": { "type": "string" } },
+        "evidence": { "type": "array", "minItems": 1, "items": { "allOf": [{ "$ref": "#/$defs/evidence" }, { "required": ["location"], "properties": { "location": { "minLength": 1 } } }] } },
         "note": { "type": "string" }
-      }
+      },
+      "allOf": [
+        { "if": { "properties": { "status": { "const": "complete" } }, "required": ["status"] }, "then": { "required": ["evidence"] } }
+      ]
     },
     "evidence": {
       "type": "object", "additionalProperties": false,

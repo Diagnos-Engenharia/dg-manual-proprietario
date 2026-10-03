@@ -3,7 +3,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
-const { stages, assertImplementationBranch, isolatedConfig, materialFingerprint, materialManifest, materialSnapshot, changedMaterialFiles, validateAttestation } = require('../scripts/release-policy.cjs')
+const { stages, assertImplementationBranch, assertPathOutsideRoot, releaseTestEnv, isolatedConfig, materialFingerprint, materialManifest, materialSnapshot, changedMaterialFiles, validateAttestation } = require('../scripts/release-policy.cjs')
 const env = { DG_TEST_DATABASE_URL: 'postgres://test:test@localhost:55439/dg_review_utf8', DG_PREVIEW_FILES_DIR: path.join(os.tmpdir(), 'dg-review-files') }
 const passed = () => ({ schemaVersion: 1, status: 'passed', fingerprint: 'abc', stages: stages.map(name => ({ name, status: 'passed' })), matrices: ['internal', 'clients'].map(suite => ({ suite, results: ['mobile', 'tablet', 'desktop'].map(viewport => ({ viewport, passed: ['login', 'read', 'navigation', 'dialog', 'containment'] })) })) })
 
@@ -20,6 +20,9 @@ test('DEH report schema is parseable and requires the review and evidence contra
   assert.deepEqual(schema.properties.reviews.allOf.map(rule => rule.contains.properties.role.const), ['DSI', 'Diagnos QA', 'DRAEL', 'LURIEL', 'Security', 'Code Review'])
   assert.ok(schema.$defs.review.required.includes('snapshotRef'))
   assert.equal(schema.$defs.review.properties.snapshotRef.const, '#/snapshot')
+  assert.ok(schema.$defs.review.allOf.some(rule => rule.if.properties.status.const === 'complete' && rule.then.required.includes('evidence')))
+  assert.ok(schema.$defs.review.properties.evidence.items.allOf.some(rule => rule.required?.includes('location')))
+  assert.equal(schema.$defs.review.properties.evidence.items.allOf.find(rule => rule.required?.includes('location')).properties.location.minLength, 1)
   assert.equal(Object.hasOwn(schema.$defs.review.properties, 'baseSha'), false)
   assert.equal(Object.hasOwn(schema.$defs.review.properties, 'headSha'), false)
   assert.equal(schema.properties.consolidatedBy.const, 'ASTRA')
@@ -51,6 +54,37 @@ test('DEH report schema is parseable and requires the review and evidence contra
 test('implementation branch allows feature branches and rejects main, detached, and unknown identity', () => {
   assert.equal(assertImplementationBranch('deh/release-policy'), 'deh/release-policy')
   for (const branch of ['main', '', 'HEAD', 'unknown']) assert.throws(() => assertImplementationBranch(branch), /implementation branch/i)
+})
+
+test('release subprocess environment drops operator secrets and keeps only fixture settings', () => {
+  const env = releaseTestEnv({ PATH: 'safe-path', SystemRoot: 'windows-root', HOME: 'secret-home', GH_TOKEN: 'secret-token', NODE_OPTIONS: '--require=secret-hook' }, {
+    database: 'postgres://test:test@localhost/dg_review', files: 'C:/tmp/review-files', directory: 'C:/tmp/release-artifacts',
+  })
+  assert.equal(env.PATH, 'safe-path')
+  assert.equal(env.SystemRoot, 'windows-root')
+  assert.equal(env.HOME, undefined)
+  assert.equal(env.GH_TOKEN, undefined)
+  assert.equal(env.NODE_OPTIONS, undefined)
+  assert.equal(env.DATABASE_URL, 'postgres://test:test@localhost/dg_review')
+  assert.equal(env.DG_PREVIEW_FILES_DIR, 'C:/tmp/review-files')
+  assert.equal(env.DG_ROUTE_AUDIT_OUTPUT, path.join('C:/tmp/release-artifacts', 'route-inventory.json'))
+})
+
+test('release artifact and fixture paths resolve symlinks before accepting paths outside the checkout', () => {
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'dg-release-path-'))
+  const root = path.join(sandbox, 'checkout'), outside = path.join(sandbox, 'outside')
+  try {
+    fs.mkdirSync(root); fs.mkdirSync(outside)
+    const linked = path.join(outside, 'checkout-link')
+    fs.symlinkSync(root, linked, process.platform === 'win32' ? 'junction' : 'dir')
+    assert.throws(() => assertPathOutsideRoot(path.join(linked, 'release-artifacts'), root), /outside/i)
+    assert.equal(assertPathOutsideRoot(path.join(outside, 'release-artifacts'), root), path.join(outside, 'release-artifacts'))
+  } finally {
+    const target = fs.realpathSync(sandbox)
+    assert.equal(path.dirname(target), fs.realpathSync(os.tmpdir()))
+    assert.ok(path.basename(target).startsWith('dg-release-path-'))
+    fs.rmSync(target, { recursive: true, force: true })
+  }
 })
 
 test('release fixture bootstrap rejects hosted or shared databases and remote browser URLs', () => {

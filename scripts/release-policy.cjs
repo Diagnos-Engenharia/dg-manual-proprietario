@@ -10,6 +10,55 @@ function assertImplementationBranch(branchName) {
   return branchName.trim()
 }
 
+function resolvedPathWithExistingAncestor(candidate) {
+  const resolved = path.resolve(candidate)
+  let ancestor = resolved
+  const suffix = []
+  while (true) {
+    try {
+      return path.resolve(fs.realpathSync(ancestor), ...suffix.reverse())
+    } catch (error) {
+      if (!['ENOENT', 'ENOTDIR'].includes(error.code)) throw error
+      const parent = path.dirname(ancestor)
+      assert.notEqual(parent, ancestor, 'Could not resolve candidate path: ' + candidate)
+      suffix.push(path.basename(ancestor))
+      ancestor = parent
+    }
+  }
+}
+
+function assertPathOutsideRoot(candidate, root) {
+  const realRoot = fs.realpathSync(root)
+  const realCandidate = resolvedPathWithExistingAncestor(candidate)
+  const relative = path.relative(realRoot, realCandidate)
+  assert.ok(relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative), 'Path must resolve outside the repository: ' + candidate)
+  return realCandidate
+}
+
+function minimalProcessEnv(sourceEnv) {
+  const env = {}
+  const processPath = sourceEnv.PATH ?? sourceEnv.Path
+  if (processPath !== undefined) env.PATH = processPath
+  for (const name of ['SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'TMPDIR']) {
+    if (sourceEnv[name] !== undefined) env[name] = sourceEnv[name]
+  }
+  return env
+}
+
+function releaseTestEnv(sourceEnv, { database, files, directory }) {
+  return {
+    ...minimalProcessEnv(sourceEnv),
+    CI: '1', NODE_ENV: 'test',
+    DATABASE_URL: database, DG_TEST_DATABASE_URL: database,
+    DG_PREVIEW_FILES_DIR: files, TEST_ARTIFACT_DIR: directory, TEST_BASE_URL: 'http://localhost:3000',
+    BETTER_AUTH_URL: 'http://localhost:3000',
+    BETTER_AUTH_SECRET: 'local-isolated-e2e-secret-only-2026',
+    INTEGRATION_ENCRYPTION_KEY: 'local-isolated-encryption-secret-only-2026',
+    DG_RELEASE_BOOTSTRAP: 'isolated-local-tests',
+    DG_ROUTE_AUDIT_OUTPUT: path.join(directory, 'route-inventory.json'),
+  }
+}
+
 function isolatedConfig(env) {
   assert.ok(!env.VERCEL && !env.VERCEL_ENV, 'Release fixtures cannot run in a hosted environment')
   const database = env.DG_TEST_DATABASE_URL
@@ -96,4 +145,4 @@ function validateAttestation(attestation, fingerprint, currentManifest) {
   }
   return true
 }
-module.exports = { stages, assertImplementationBranch, isolatedConfig, materialFingerprint, materialManifest, materialSnapshot, changedMaterialFiles, validateAttestation }
+module.exports = { stages, assertImplementationBranch, assertPathOutsideRoot, minimalProcessEnv, releaseTestEnv, isolatedConfig, materialFingerprint, materialManifest, materialSnapshot, changedMaterialFiles, validateAttestation }

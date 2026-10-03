@@ -3,17 +3,17 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { spawn, spawnSync } = require('node:child_process')
 const { Pool } = require('pg')
-const { assertImplementationBranch, isolatedConfig, materialFingerprint, materialManifest, validateAttestation } = require('./release-policy.cjs')
+const { assertImplementationBranch, assertPathOutsideRoot, minimalProcessEnv, releaseTestEnv, isolatedConfig, materialFingerprint, materialManifest, validateAttestation } = require('./release-policy.cjs')
 const root = path.resolve(__dirname, '..')
 const directory = path.resolve(process.env.TEST_ARTIFACT_DIR || path.join(root, '..', 'release-test'))
 const report = { schemaVersion: 1, status: 'running', startedAt: new Date().toISOString(), stages: [], matrices: [], limitations: ['OpenAI semantics use mocked responses; no live provider request', 'Private files use the isolated local adapter; live Vercel Blob transport is not certified', 'Chromium viewport/touch emulation; physical devices, Safari and Firefox not certified', 'Protected hosted preview still requires its separate review'] }
 let active, timer, started = false, timedOut = false
 function stop() {
   if (!active || active.exitCode !== null) return
-  if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(active.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
+  if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(active.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore', env: minimalProcessEnv(process.env) })
   else { try { process.kill(-active.pid, 'SIGTERM') } catch { active.kill() } }
 }
-function git(args) { return spawnSync('git', args, { cwd: root, encoding: 'utf8', windowsHide: true }).stdout?.trim() || 'unknown' }
+function git(args) { return spawnSync('git', args, { cwd: root, encoding: 'utf8', windowsHide: true, env: minimalProcessEnv(process.env) }).stdout?.trim() || 'unknown' }
 function run(name, args, env) {
   console.log('RELEASE_STAGE:', name)
   const started = Date.now(), logPath = path.join(directory, name + '.log')
@@ -35,15 +35,16 @@ function run(name, args, env) {
   try {
     assertImplementationBranch(git(['branch', '--show-current']))
     const config = isolatedConfig(process.env)
-    assert.ok(directory !== root && !directory.startsWith(root + path.sep), 'Test artifacts must be stored outside the material source tree')
-    assert.ok(config.files !== root && !config.files.startsWith(root + path.sep), 'Isolated private files must be outside the source tree')
+    assertPathOutsideRoot(directory, root)
+    assertPathOutsideRoot(config.files, root)
     fs.mkdirSync(directory, { recursive: true }); fs.mkdirSync(config.files, { recursive: true })
+    assertPathOutsideRoot(directory, root)
+    assertPathOutsideRoot(config.files, root)
     started = true
     report.observedHead = git(['rev-parse', 'HEAD']); report.workingTreeDirty = Boolean(git(['status', '--porcelain']))
     report.materialFiles = materialManifest(root)
     report.fingerprint = materialFingerprint(root)
-    const env = { ...process.env, DATABASE_URL: config.database, DG_TEST_DATABASE_URL: config.database, DG_PREVIEW_FILES_DIR: config.files, TEST_ARTIFACT_DIR: directory, TEST_BASE_URL: config.origin, BETTER_AUTH_URL: config.origin, BETTER_AUTH_SECRET: 'local-isolated-e2e-secret-only-2026', INTEGRATION_ENCRYPTION_KEY: 'local-isolated-encryption-secret-only-2026', DG_RELEASE_BOOTSTRAP: 'isolated-local-tests', DG_ROUTE_AUDIT_OUTPUT: path.join(directory, 'route-inventory.json') }
-    delete env.BLOB_READ_WRITE_TOKEN; delete env.OPENAI_API_KEY; delete env.DG_ALLOW_TEST_SEEDS
+    const env = releaseTestEnv(process.env, { database: config.database, files: config.files, directory })
     timer = setTimeout(() => { timedOut = true; stop() }, 20 * 60 * 1000)
     await run('security', [path.join(root, 'tests', 'security-static.cjs')], env)
     await run('security-runtime', [path.join(root, 'tests', 'security-runtime.cjs')], env)
