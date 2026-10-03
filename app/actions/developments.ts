@@ -46,7 +46,7 @@ export async function createDevelopment(input: {
       data,
       masterProgress: 0,
     })
-    await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: "development.created", entityType: "development", entityId: id, metadata: { path: ["empreendimento"], before: null, after: { name, client, deliveryDate } } },tx)
+    await tx.insert(auditLogs).values({ id:crypto.randomUUID(), organizationId: context.organization.id, actorId: context.user.id, action: "development.created", entityType: "development", entityId: id, metadata: { path: ["empreendimento"], before: null, after: { name, client, deliveryDate } } })
   })
   revalidatePath('/empreendimentos')
   revalidatePath('/')
@@ -88,7 +88,7 @@ export async function saveFinishingTable(input: { id?: string; developmentId: st
     if (existing) await tx.update(finishingTables).set({ tower: input.tower.trim(), unitModel: input.unitModel.trim(), area: input.area.trim(), data: input.data, revision, status: "rascunho", lastEditorId: context.user.id, updatedAt: new Date() }).where(eq(finishingTables.id, id))
     else await tx.insert(finishingTables).values({ id, developmentId: input.developmentId, organizationId: context.organization.id, tower: input.tower.trim(), typology: input.typology.trim(), unitModel: input.unitModel.trim(), area: input.area.trim(), data: input.data, revision, lastEditorId: context.user.id })
     await tx.insert(finishingTableHistory).values({ id: crypto.randomUUID(), finishingTableId: id, developmentId: input.developmentId, organizationId: context.organization.id, revision, status: "rascunho", data: input.data, changedBy: context.user.id })
-    await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: "finishing_table.edited", entityType: "finishing_table", entityId: id, metadata: { developmentId: input.developmentId, path: ["acabamentos", input.typology], before: existing?.data ?? null, after: input.data, revision, rows: Object.values(input.data).flat().length } },tx)
+    await tx.insert(auditLogs).values({ id:crypto.randomUUID(), organizationId: context.organization.id, actorId: context.user.id, action: "finishing_table.edited", entityType: "finishing_table", entityId: id, metadata: { developmentId: input.developmentId, path: ["acabamentos", input.typology], before: existing?.data ?? null, after: input.data, revision, rows: Object.values(input.data).flat().length } })
     return { id, revision }
   })
   revalidatePath(`/empreendimentos/${input.developmentId}`)
