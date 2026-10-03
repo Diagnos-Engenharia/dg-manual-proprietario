@@ -88,7 +88,7 @@
         "note": { "type": "string" }
       },
       "allOf": [
-        { "if": { "properties": { "status": { "const": "passed" } }, "required": ["status"] }, "then": { "required": ["evidence"], "properties": { "evidence": { "properties": { "kind": { "const": "browser" } }, "required": ["kind"] } } } }
+        { "if": { "properties": { "status": { "const": "passed" } }, "required": ["status"] }, "then": { "required": ["evidence"] } }
       ]
     },
     "visual": {
@@ -117,7 +117,7 @@
         "note": { "type": "string" }
       },
       "allOf": [
-        { "if": { "properties": { "status": { "const": "passed" } }, "required": ["status"] }, "then": { "required": ["evidence"] } }
+        { "if": { "properties": { "status": { "const": "passed" } }, "required": ["status"] }, "then": { "required": ["evidence"], "properties": { "evidence": { "properties": { "kind": { "const": "browser" } }, "required": ["kind"] } } } }
       ]
     },
     "preview": {
