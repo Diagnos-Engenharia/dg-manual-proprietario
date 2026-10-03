@@ -72,8 +72,10 @@
 
 The run-specific report is delivered outside the code branch so its snapshot SHA is not made stale by committing the report itself.
 
-- [ ] **Step 1: Run focused Node tests and static checks** (`node --test tests/release-policy.test.cjs`, `node scripts/verify-release.cjs` when its fingerprint is current, `git diff --check`).
-- [ ] **Step 2: Attempt the project's requested release/build/browser checks only with the isolated test database, private-file directory, and dependencies configured; record any blocked stage without claiming success.**
-- [ ] **Step 3: Re-run DSI and QA independently against the exact final SHA/base; include Security and Code Review findings for changed surfaces.**
-- [ ] **Step 4: Inspect an accessible PR Preview for health, login, affected visual/functional flows; otherwise state why no live preview was validated. Do not invoke Actions, use an unauthenticated tunnel, or deploy production.**
-- [ ] **Step 5: Record the compact structured report and inspect `git diff --check`, changed-file list, and PR base/head.**
+- [x] **Step 1: Run focused Node tests and static checks** (`node --test tests/release-policy.test.cjs`, `node scripts/verify-release.cjs` when its fingerprint is current, `git diff --check`). The focused suite passes 6/6 and syntax/diff checks pass. `verify-release` was attempted and correctly refused a stale attestation after material changes.
+- [x] **Step 2: Attempt the project's requested release/build/browser checks only with the isolated test database, private-file directory, and dependencies configured; record any blocked stage without claiming success.** The full `test:gate` stops before suites because pnpm rejects the existing `xlsx@0.20.3` lock entry without tarball integrity. The release gate, build, and browser run were not attempted without their isolated database, Docker, and installed dependencies.
+- [x] **Step 3: Re-run DSI and QA independently against the exact final SHA/base; include Security and Code Review findings for changed surfaces.** Reviewer results and any residual blockers are captured in the run-specific report.
+- [x] **Step 4: Inspect an accessible PR Preview for health, login, affected visual/functional flows; otherwise state why no live preview was validated. Do not invoke Actions, use an unauthenticated tunnel, or deploy production.** Vercel reported deployment failure for the reviewed head, so login and visual/functional Preview checks remain blocked.
+- [x] **Step 5: Record the compact structured report and inspect `git diff --check`, changed-file list, and PR base/head.** The report is saved outside the branch so its head SHA remains stable.
+
+**Pilot execution outcome:** The branch guard, fingerprint, output contract, and handbook checks pass locally. The existing release attestation is stale by design after source changes and was not edited or regenerated. No full release, browser, or live Preview validation is claimed. See the run-specific JSON report for the exact snapshot, reviewer evidence, and command outcomes.
