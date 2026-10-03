@@ -40,12 +40,15 @@ export async function updateMemberRole(memberId: string, role: "editor") {
 
 export async function updateMemberStatus(memberId: string, status: "active" | "suspended" | "removed") {
   const context = await requireCompanyRole(["admin"])
-  const target=await db.select({role:members.role}).from(members).where(and(eq(members.id,memberId),eq(members.organizationId,context.organization.id))).limit(1)
+  const target=await db.select({role:members.role,userId:members.userId}).from(members).where(and(eq(members.id,memberId),eq(members.organizationId,context.organization.id))).limit(1)
   if(!target[0])throw new Error("Usuário não encontrado")
   if(isGlobalAdmin(target[0].role))throw new Error("Administradores são gerenciados pelo Gerenciador da plataforma")
   await ensureNotLastAdmin(memberId, context.organization.id, undefined, status)
-  await db.update(members).set({ status }).where(and(eq(members.id, memberId), eq(members.organizationId, context.organization.id)))
-  await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: `member.${status}`, entityType: "member", entityId: memberId })
+  await db.transaction(async tx=>{
+    await tx.update(members).set({ status }).where(and(eq(members.id, memberId), eq(members.organizationId, context.organization.id)))
+    if(status!=="active")await tx.update(user).set({activeOrganizationId:null,updatedAt:new Date()}).where(and(eq(user.id,target[0].userId),eq(user.activeOrganizationId,context.organization.id)))
+    await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: `member.${status}`, entityType: "member", entityId: memberId },tx)
+  })
   revalidatePath("/configuracoes")
 }
 
