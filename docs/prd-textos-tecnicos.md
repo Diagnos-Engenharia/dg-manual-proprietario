@@ -42,7 +42,7 @@ A área contém um único catálogo e um único painel de conteúdo. Não haver�
 
 O catálogo apresenta as seções fixas e os sistemas do manual selecionado, com identificação numérica consistente com a composição. Os sistemas ficam no capítulo correspondente, organizados pelas categorias existentes.
 
-A busca considera título, categoria e normas de referência. Filtros de tipo e estado ajudam a encontrar textos fixos, sistemas e pendências. O resultado mantém contexto suficiente para identificar o destino; estados vazios distinguem ausência de sistemas, resultado sem correspondência e item indisponível.
+A busca considera título, categoria e normas de referência. O pedido posterior de 02/10 removeu os filtros de tipo, estado e categoria da interface; os indicadores de validação continuam visíveis nos itens. O resultado mantém contexto suficiente para identificar o destino; estados vazios distinguem ausência de sistemas, resultado sem correspondência e item indisponível.
 
 Cada sistema apresenta dois indicadores identificáveis: **Descrição** e **Manutenção**. Um único indicador de aprovado não deve esconder uma manutenção pendente. Cor é um reforço; texto e ícone também identificam o estado.
 
@@ -130,7 +130,7 @@ Revisão em amarelo permanece restrita ao preview. Emissão oficial continua blo
 | AC04 | Um item com os dois escopos possui fontes e validações independentes. |
 | AC05 | Alterar ou retirar seleção atualiza catálogo e preview sem apagar a fonte antiga nem abrir outro item por engano. |
 | AC06 | Ordem e numeração dos sistemas correspondem ao documento, incluindo systemOrder. |
-| AC07 | Busca e filtros localizam sistemas e estados sem esconder a identidade da seleção. |
+| AC07 | A busca localiza sistemas sem esconder a identidade da seleção; descrição e manutenção mantêm seus indicadores de estado. |
 | AC08 | Descrição e Manutenção possuem edição, salvamento, envio e decisão separados. |
 | AC09 | Adicionar, editar e remover atividade persiste após recarregar e não modifica o outro manual. |
 | AC10 | Envio aguarda fonte salva; descrição vazia, contexto inválido e alteração não salva recebem orientação. |

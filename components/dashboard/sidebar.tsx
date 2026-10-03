@@ -3,13 +3,13 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useState } from "react"
-import { LayoutDashboard, Building2, BookOpen, LogOut, Settings, X } from "lucide-react"
+import { LayoutDashboard, Building2, BookOpen, Archive, Users, LogOut, Settings, X, ArrowLeftRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { signOut } from "@/lib/auth-client"
 
-type Context={user:{name:string;email:string;image?:string|null};organization:{name:string;logo?:string|null;initials?:string;primaryColor?:string};role:"admin"|"admin_empreendimento"|"editor"|"validator"}
+type Context={user:{name:string;email:string;image?:string|null};organization:{name:string;logo?:string|null;initials?:string;primaryColor?:string};canSwitchOrganization:boolean;role:"admin"|"admin_empreendimento"|"editor"|"validator"}
 const roleLabels={admin:"Administrador",admin_empreendimento:"Construtor",editor:"Construtor",validator:"Validador legado"}
-const primary=[{label:"Dashboard",icon:LayoutDashboard,href:"/"},{label:"Empreendimentos",icon:Building2,href:"/empreendimentos"},{label:"Manuais",icon:BookOpen,href:"/manuais"}]
+const primary=[{label:"Dashboard",icon:LayoutDashboard,href:"/"},{label:"Empreendimentos",icon:Building2,href:"/empreendimentos"},{label:"Databook",icon:Archive,href:"/databook"},{label:"Manuais",icon:BookOpen,href:"/manuais"}]
 
 export function Sidebar({open=false,onClose}:{open?:boolean;onClose?:()=>void}){
   const pathname=usePathname()
@@ -28,8 +28,9 @@ export function Sidebar({open=false,onClose}:{open?:boolean;onClose?:()=>void}){
         <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-sidebar-primary text-sm font-bold text-sidebar-primary-foreground">{context?.organization.logo?<img src={context.organization.logo} alt={"Logo "+context.organization.name} className="h-full w-full object-contain"/>:initials}</div>
         <div className="min-w-0 leading-tight"><p className="truncate font-semibold text-sidebar-accent-foreground">{context?.organization.name||"Construtora"}</p><p className="truncate text-xs text-sidebar-foreground/60">Workspace</p></div>
       </div>
-      <nav className="flex flex-1 flex-col gap-1.5 overflow-y-auto px-4 py-4"><p className="pb-2 text-center text-[10px] font-semibold uppercase tracking-[0.14em] text-sidebar-foreground/45">Principal</p>{primary.map(nav)}</nav>
+      <nav className="flex flex-1 flex-col gap-1.5 overflow-y-auto px-4 py-4"><p className="pb-2 text-center text-[10px] font-semibold uppercase tracking-[0.14em] text-sidebar-foreground/45">Principal</p>{primary.map(nav)}{context?.role==="admin"&&nav({label:"Usuários",icon:Users,href:"/usuarios"})}</nav>
       <div className="px-4 pb-3">
+        {context?.canSwitchOrganization&&<Link href="/selecionar-organizacao" onClick={onClose} className="flex min-h-10 w-full items-center justify-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"><ArrowLeftRight className="h-[17px] w-[17px] shrink-0"/><span>Trocar construtora</span></Link>}
         {context?.role==="admin"&&<Link href="/configuracoes" onClick={onClose} className={cn("flex min-h-10 w-full items-center justify-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-all",settingsActive?"bg-sidebar-primary text-sidebar-primary-foreground shadow-sm":"text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground")}><Settings className="h-[17px] w-[17px] shrink-0"/><span>Configurações</span></Link>}
       </div>
       <div className="relative border-t border-sidebar-border p-4">

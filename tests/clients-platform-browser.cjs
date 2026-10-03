@@ -1,0 +1,55 @@
+const assert = require('node:assert/strict')
+const { viewports, capture, record } = require('./responsive-contract.cjs')
+
+module.exports = async function runClientsMatrix({ admin, client, directory, email, name, developmentId }) {
+  const results = []
+  for (const viewport of viewports) {
+    await admin.setViewportSize({ width: viewport.width, height: viewport.height })
+    await client.setViewportSize({ width: viewport.width, height: viewport.height })
+    await admin.getByRole('combobox', { name: 'Filtrar por empreendimento' }).selectOption(developmentId)
+    await admin.getByRole('textbox', { name: 'Buscar usuários' }).fill(email)
+    assert.equal(await admin.locator('tbody tr').count(), 1)
+    await admin.getByRole('button', { name: 'Ações de ' + name, exact: true }).click()
+    await admin.getByRole('menuitemcheckbox', { name: 'Desabilitar acesso', exact: true }).click()
+    await admin.getByRole('dialog').waitFor()
+    await capture(admin, directory, viewport.name + '-usuarios-dialogo')
+    await admin.getByRole('dialog').getByRole('button', { name: 'Cancelar', exact: true }).click()
+    await admin.getByRole('dialog').waitFor({ state: 'hidden' })
+    await capture(admin, directory, viewport.name + '-usuarios')
+    const links = client.getByRole('link', { name: 'Visualizar', exact: true })
+    assert.equal(await links.count(), 2)
+    await links.first().scrollIntoViewIfNeeded()
+    const popupPromise = client.waitForEvent('popup')
+    const pdfResponse = client.context().waitForEvent('response', { predicate: response => new URL(response.url()).pathname === '/api/clients/manuals/file' })
+    await links.first().click()
+    const popup = await popupPromise
+    const opened = await pdfResponse
+    assert.equal(opened.status(), 200)
+    assert.equal(opened.headers()['content-type'], 'application/pdf')
+    assert.match(opened.headers()['content-disposition'], /^inline/)
+    assert.equal(new URL(opened.url()).pathname, '/api/clients/manuals/file')
+    assert.ok(opened.request().isNavigationRequest(), 'Visualizar must initiate a real document navigation')
+    assert.equal(opened.request().frame().page(), popup, 'The private PDF navigation belongs to the opened tab')
+    // Chromium's PDF viewer owns the navigated response stream; CDP cannot read it.
+    // Confirm bytes through the same real private endpoint with the browser's cookies.
+    const bytes = await client.context().request.get(opened.url())
+    assert.equal(bytes.status(), 200)
+    assert.equal(bytes.headers()['content-type'], 'application/pdf')
+    assert.match(bytes.headers()['content-disposition'], /^inline/)
+    assert.ok((await bytes.body()).subarray(0, 5).equals(Buffer.from('%PDF-')))
+    await popup.close()
+    const question = client.getByRole('textbox', { name: 'Sua pergunta sobre o manual', exact: true })
+    await question.fill('Como devo limpar os revestimentos?')
+    const response = client.waitForResponse(value => value.url().endsWith('/api/clients/manuals/chat') && value.request().method() === 'POST')
+    await client.getByRole('button', { name: 'Perguntar', exact: true }).click()
+    assert.equal((await response).status(), 503, 'Unavailable external provider must report real unavailable state')
+    await client.getByRole('alert').filter({ hasText: /indisponível/ }).waitFor()
+    await capture(client, directory, viewport.name + '-portal-chat')
+    results.push({ viewport: viewport.name, passed: ['users development filter and search', 'per-user access menu, confirmation and cancel', 'private-PDF navigation in new tab and authorized real bytes', 'manual question and unavailable-provider feedback', 'document and dialog horizontal containment'] })
+    console.log('PASS client matrix:', viewport.name)
+  }
+  await admin.getByRole('combobox', { name: 'Filtrar por empreendimento' }).selectOption('')
+  await admin.getByRole('textbox', { name: 'Buscar usuários' }).fill('')
+  await admin.setViewportSize({ width: 1440, height: 950 }); await client.setViewportSize({ width: 1440, height: 950 })
+  await record(directory, 'clients', results)
+}

@@ -4,14 +4,19 @@ import { auth } from "@/lib/auth"
 import { AppShell } from "@/components/dashboard/app-shell"
 import { PortfolioTable } from "@/components/dashboard/portfolio-table"
 import { listDevelopments } from "@/app/actions/developments"
-import { getActiveMembership,isCurrentUserPlatformManager } from "@/lib/organization"
+import { getActiveMembership,getOrganizationChoices,isCurrentUserPlatformManager } from "@/lib/organization"
 import { toDashboardDevelopment } from "@/lib/dashboard"
 import { DashboardInsights, DashboardPrioritySummary } from "@/components/dashboard/dashboard-insights"
+import { hasClientIdentity } from "@/lib/clients"
 
 export default async function DashboardPage() {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) redirect("/sign-in")
   if (await isCurrentUserPlatformManager()) redirect("/gerenciador")
+  const choices = await getOrganizationChoices()
+  if (!choices.organizations.length && await hasClientIdentity(session.user.id)) redirect("/meu-manual")
+  if (!choices.organizations.length) redirect("/onboarding")
+  if (!choices.activeOrganizationId && choices.organizations.length > 1) redirect("/selecionar-organizacao")
   const membership = await getActiveMembership()
   if (!membership) redirect("/onboarding")
   const developments = await listDevelopments()

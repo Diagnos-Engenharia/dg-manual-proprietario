@@ -4,6 +4,7 @@ const path = require('node:path')
 const { chromium, request } = require(process.env.PLAYWRIGHT_PACKAGE_PATH || 'playwright')
 const { Pool } = require('pg')
 const { PDFDocument } = require('pdf-lib')
+const { createHash, randomUUID } = require('node:crypto')
 const origin = process.env.TEST_BASE_URL || 'http://localhost:3000'
 assert.ok(['localhost','127.0.0.1','[::1]'].includes(new URL(origin).hostname), 'Run fixture mutations only against an isolated local application')
 assert.ok(process.env.DATABASE_URL && ['localhost','127.0.0.1','[::1]'].includes(new URL(process.env.DATABASE_URL).hostname), 'An isolated local DATABASE_URL is required')
@@ -14,18 +15,26 @@ const flatten = sections => sections.flatMap(section => [section, ...flatten(sec
 const commands = preview => preview.layout.pages.flatMap(page => page.commands).filter(command => command.type === 'text').map(command => command.text).join(' ')
 ;(async () => {
   await fs.mkdir(directory, { recursive: true })
-  const admin = await request.newContext({ baseURL: origin, extraHTTPHeaders: { Origin: origin } })
-  const reviewer = await request.newContext({ baseURL: origin, extraHTTPHeaders: { Origin: origin } })
-  const editor = await request.newContext({ baseURL: origin, extraHTTPHeaders: { Origin: origin } })
+  const fixtureIp='198.18.'+((Date.now()>>>8)&255)+'.'+(Date.now()&255)
+  const extraHTTPHeaders={Origin:origin,'X-Forwarded-For':fixtureIp}
+  const admin = await request.newContext({ baseURL: origin, extraHTTPHeaders })
+  const reviewer = await request.newContext({ baseURL: origin, extraHTTPHeaders })
+  const editor = await request.newContext({ baseURL: origin, extraHTTPHeaders })
   const anonymous = await request.newContext({ baseURL: origin })
-  const outsider = await request.newContext({ baseURL: origin, extraHTTPHeaders: { Origin: origin } })
+  const outsider = await request.newContext({ baseURL: origin, extraHTTPHeaders })
   let browser
   try {
+    const org = 'composer-org-'+suffix
+    const inviterId = 'composer-inviter-'+suffix
+    await pool.query('INSERT INTO organization(id,name,slug) VALUES($1,$2,$3)', [org, 'Construtora São João', org])
+    await pool.query('INSERT INTO "user"(id,name,email,"emailVerified") VALUES($1,$2,$3,true)',[inviterId,'Local fixture inviter','inviter-'+suffix+'@example.test'])
     async function signup(context, kind) {
       const data={name:kind+' compositor',email:kind+'-'+suffix+'@example.test',password:'ComposerTest!2026-isolated'}
+      const token=randomUUID()
+      await pool.query('INSERT INTO organization_invitation(id,"organizationId",name,email,role,"tokenHash","expiresAt","invitedBy") VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[randomUUID(),org,data.name,data.email,'admin',createHash('sha256').update(token).digest('hex'),new Date(Date.now()+3600000),inviterId])
       let result
       for(let attempt=0;attempt<3;attempt++){
-        result=await context.post('/api/auth/sign-up/email',{data})
+        result=await context.post('/api/auth/sign-up/email',{data,headers:{'x-dg-invite':token}})
         if(result.status()!==429)break
         const seconds=Math.min(30,Math.max(1,Number(result.headers()['retry-after'])||11))
         await new Promise(resolve=>setTimeout(resolve,(seconds+1)*1000))
@@ -37,8 +46,6 @@ const commands = preview => preview.layout.pages.flatMap(page => page.commands).
     const reviewerId = await signup(reviewer, 'reviewer')
     const editorId = await signup(editor, 'editor')
     const outsiderId = await signup(outsider, 'outsider')
-    const org = 'composer-org-'+suffix
-    await pool.query('INSERT INTO organization(id,name,slug) VALUES($1,$2,$3)', [org, 'Construtora São João', org])
     for(const [id, role] of [[adminId,'admin'],[reviewerId,'admin'],[editorId,'editor']]) await pool.query('INSERT INTO member(id,"organizationId","userId",role,status) VALUES($1,$2,$3,$4,$5)', ['member-'+id,org,id,role,'active'])
     const otherOrg='other-org-'+suffix
     await pool.query('INSERT INTO organization(id,name,slug) VALUES($1,$2,$3)',[otherOrg,'Outra organização',otherOrg])
@@ -93,7 +100,7 @@ const commands = preview => preview.layout.pages.flatMap(page => page.commands).
     await pool.query('UPDATE development_content_validation SET status=$1 WHERE "developmentId"=$2 AND section IN ($3,$4)',['aprovado',dev,'sistemas','manutencao'])
     unit = await preview('proprietario');assert.equal(unit.readiness.ok,true,JSON.stringify(unit.readiness))
     assert.equal((await admin.post('/api/manuals/compile',{data:{developmentId:dev,manualType:'proprietario',previewFingerprint:'stale'}})).status(),409)
-    async function compile(type, snapshot) { const result=await admin.post('/api/manuals/compile',{data:{developmentId:dev,manualType:type,previewFingerprint:snapshot.fingerprint,comment:'Teste de composição'}});assert.equal(result.status(),201,await result.text());const version=await result.json();const download=await admin.get('/api/manuals/file?pathname='+encodeURIComponent(version.pathname));assert.equal(download.status(),200);const bytes=await download.body();const pdf=await PDFDocument.load(bytes);assert.equal(pdf.getPageCount(),snapshot.layout.pages.length);await fs.writeFile(path.join(directory,'manual-'+type+'.pdf'),bytes);return version }
+    async function compile(type, snapshot) { const result=await admin.post('/api/manuals/compile',{data:{developmentId:dev,manualType:type,previewFingerprint:snapshot.fingerprint,comment:'Teste de composição'}});assert.equal(result.status(),201,await result.text());const version=await result.json();const download=await admin.get('/api/manuals/file?id='+encodeURIComponent(version.id));assert.equal(download.status(),200);const bytes=await download.body();const pdf=await PDFDocument.load(bytes);assert.equal(pdf.getPageCount(),snapshot.layout.pages.length);await fs.writeFile(path.join(directory,'manual-'+type+'.pdf'),bytes);return version }
     const version = await compile('proprietario',unit)
     await compile('sindico',await preview('sindico'))
     assert.equal((await admin.post('/api/manuals/versions/status',{data:{id:version.id,status:'publicado'}})).status(),400)
@@ -136,7 +143,10 @@ const commands = preview => preview.layout.pages.flatMap(page => page.commands).
     assert.equal(await page.getByText(/Os estados indicam a revisão do conteúdo/).count(),0)
     assert.equal(await page.getByRole('button',{name:'Modo edição',exact:true}).count(),1)
     assert.equal(await page.getByRole('button',{name:'Gerar PDF',exact:true}).count(),1)
-    assert.equal(await page.locator('[data-manual-page]').count(),(await preview('proprietario')).layout.pages.length)
+    await page.getByLabel('Modo de visualização').selectOption('continuous')
+    const expectedPageCount=(await preview('proprietario')).layout.pages.length
+    await page.waitForFunction(expected=>document.querySelectorAll('[data-manual-page]').length===expected,expectedPageCount)
+    assert.equal(await page.locator('[data-manual-page]').count(),expectedPageCount)
     await page.getByRole('button',{name:'Expandir Sistemas Construtivos, Uso e Manutenção',exact:true}).click()
     await page.getByRole('button',{name:/4\.1 Estrutura/}).click()
     const structureHeading=page.locator('[data-manual-page] svg text[font-family$="-heading"]').filter({hasText:/^4\.1 Estrutura$/}).last()
@@ -221,9 +231,9 @@ const commands = preview => preview.layout.pages.flatMap(page => page.commands).
     await page.getByRole('heading',{name:'Manuais finalizados',exact:true}).waitFor()
     const finalManual=page.locator('article[data-published-manual-id="'+published.id+'"]')
     await finalManual.waitFor()
-    const finalFile='/api/manuals/file?pathname='+encodeURIComponent(published.pathname)
+    const finalFile='/api/manuals/file?id='+encodeURIComponent(published.id)
     assert.equal(await finalManual.getByRole('link',{name:'Visualizar PDF',exact:true}).getAttribute('href'),finalFile)
-    assert.equal(await finalManual.getByRole('link',{name:'Baixar PDF',exact:true}).getAttribute('href'),finalFile)
+    assert.equal(await finalManual.getByRole('link',{name:'Baixar PDF',exact:true}).getAttribute('href'),finalFile+'&download=1')
     for(const old of publishedHistory.filter(item=>item.status!=='publicado'))assert.equal(await page.locator('article[data-published-manual-id="'+old.id+'"]').count(),0)
     assert.ok(!(await (await outsider.get('/manuais')).text()).includes(published.id))
     assert.ok((await (await editor.get('/manuais')).text()).includes(published.id))
@@ -237,6 +247,7 @@ const commands = preview => preview.layout.pages.flatMap(page => page.commands).
     await require('./databook-browser.cjs')({page,admin,editor,outsider,anonymous,dev,origin,directory})
     await require('./databook-folder-race.cjs')({admin,pool,dev})
     await require('./manual-public-contract.cjs')({admin,pool,dev})
+    await require('./manual-platform-browser.cjs')({browser,dev,origin,directory,adminEmail:'admin-'+suffix+'@example.test'})
     assert.deepEqual(errors,[])
     const ready = await preview('proprietario')
     await fs.writeFile(path.join(directory,'fixture.json'),JSON.stringify({developmentId:dev,organizationId:org,adminEmail:'admin-'+suffix+'@example.test',fingerprint:ready.fingerprint}))

@@ -70,5 +70,5 @@ const spec={
   },
 }
 
-export function GET(){return publicJson(spec)}
-export function OPTIONS(){return publicOptions()}
+export function GET(request:Request){return publicJson(spec,200,request)}
+export function OPTIONS(request:Request){return publicOptions(request)}

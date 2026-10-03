@@ -26,7 +26,7 @@ Os capítulos principais não podem ser movidos. A ordem dos sistemas aceita `sy
 
 ## Unidades e tabelas de acabamento
 
-`development_unit` registra unidades reais com ID estável, torre/bloco, pavimento, número, tipologia e área. Número e tipologia são obrigatórios; área preenchida deve ser positiva. Número é único dentro da torre/bloco do empreendimento, com normalização de caixa, espaços e Unicode NFC. Quantidades da ficha técnica e rótulos antigos não criam unidades por inferência.
+`development_unit` registra unidades reais com ID estável. Cadastro e edição usam apenas número obrigatório e torre/bloco opcional. Tipologia, pavimento e área antigos permanecem armazenados, mas são omitidos da interface atual e preservados quando não enviados em uma edição. Número é único dentro da torre/bloco do empreendimento, com normalização de caixa, espaços e Unicode NFC. Quantidades da ficha técnica e rótulos antigos não criam unidades por inferência.
 
 Tabela de Acabamentos apresenta uma lista pesquisável de unidades e um painel de identificação/edição. Cadastro e alteração da identificação usam diálogos internos. Cada unidade possui uma tabela própria, com grupos de ambientes, materiais, instalações hidráulicas, esquadrias/ferragens e instalações elétricas. Linhas e ambientes usam confirmação interna para exclusão; o servidor só muda após Salvar tabela.
 
@@ -40,11 +40,13 @@ A migração aditiva `0012_units_finishing_documents.sql` acrescenta o cadastro,
 
 ## Prévia, navegação e edição
 
-No preview, conteúdo aguardando validação aparece em amarelo (`#B77900`); conteúdo aprovado utiliza as cores da identidade. Rascunhos e rejeitados mantêm estrutura/pendências, sem exibir seu corpo nas páginas. Na composição oficial, somente conteúdo aprovado entra nos blocos técnicos. `renderManualPdf()` recusa blocos ou comandos de revisão mesmo quando chamado diretamente.
+No preview, conteúdo aguardando validação aparece em amarelo (`#B77900`); conteúdo aprovado utiliza as cores da identidade. Textos técnicos em rascunho ou rejeitados mantêm estrutura/pendências, sem exibir seu corpo nas páginas. A exceção solicitada para acabamentos mostra os registros salvos da tabela em amarelo, inclusive rascunhos/rejeitados, para conferência da unidade; isso não autoriza publicação. Na composição oficial, somente conteúdo aprovado entra nos blocos técnicos. `renderManualPdf()` recusa blocos ou comandos de revisão mesmo quando chamado diretamente.
 
 Visualizar faz o sumário navegar até a página correspondente. Modo edição transforma tópicos e textos em atalhos para sua fonte na Elaboração. Descrição e manutenção levam ao conteúdo específico do sistema; a tabela independente preserva unidade, grupo e ambiente, inclusive quando só existem registros de materiais ou instalações naquele ambiente. Ficha, identidade, contatos e comissionamento mantêm seus próprios destinos.
 
 O compositor oferece contínuo e página única, zoom, ajuste à página/largura, sumário/pesquisa, navegação de página, informações da seção, pendências, Gerar PDF e Histórico. Módulos opcionais dos manuais não são oferecidos para tabelas de acabamento. Nesse documento, a unidade é selecionada a partir do cadastro real e mantida na URL: `manual=acabamentos&unidade=<id>`. Ausência de cadastro, falta de seleção e link inválido têm orientação explícita; não se escolhe outra unidade silenciosamente.
+
+Tabelas de acabamento usam A4 em paisagem na prévia e no PDF, com dimensões próprias do documento; os manuais mantêm A4 em retrato. O documento e o menu contêm somente Tabela de acabamentos, sem capa, sumário ou identificação separada. Todas as páginas identificam empreendimento, torre/bloco e número no cabeçalho. Ambientes e grupos organizam os blocos da tabela e mantêm links para edição da fonte correta, sem criar seções adicionais no menu.
 
 Links técnicos usam `aba=textos` com manual, item e `conteudo=manutencao` quando necessário. `aba=sistemas` continua como alias. Item removido ou incompatível com o manual não abre outro editor. Rascunhos dos textos técnicos ficam separados por manual/seção/sistema enquanto o painel está montado; é necessário salvar antes de visualizar o sistema no manual.
 
@@ -60,7 +62,7 @@ Para acabamentos, a impressão digital da prévia inclui fonte, próxima revisã
 
 Gerar PDF inicia o ciclo documental: rascunho emitido → validação → aprovado → publicado. Histórico, sequência de revisão e substituição da publicação são separados por empreendimento, tipo de documento e unidade. Publicar uma unidade não substitui outra. Publicações concorrentes compartilham o bloqueio do empreendimento. Fonte alterada impede publicar uma revisão antiga como atual, sem apagar o PDF anteriormente publicado.
 
-A página `/manuais` oferece Manual do Proprietário, Manual do Síndico e Unidades. Os dois primeiros apresentam seus documentos publicados e empreendimentos autorizados. Unidades inclui todo o cadastro autorizado, mesmo sem PDF, com empreendimento, identificação, tipologia, estado da tabela e situação: Pendente de emissão, Em validação, Emitida ou Atualização pendente. Pesquisa e filtros de situação usam o cadastro real. Abrir prévia leva à unidade correta; publicações oferecem visualizar/baixar e continuam acessíveis quando há atualização pendente.
+A página `/manuais` oferece Manual do Proprietário, Manual do Síndico e Unidades. Os dois primeiros apresentam seus documentos publicados e empreendimentos autorizados. Unidades inclui todo o cadastro autorizado, mesmo sem PDF, com empreendimento, torre/bloco, número, estado da tabela e situação: Pendente de emissão, Em validação, Emitida ou Atualização pendente. Pesquisa e filtros de situação usam o cadastro real. Abrir prévia leva à unidade correta; publicações oferecem visualizar/baixar e continuam acessíveis quando há atualização pendente.
 
 `GET/POST /api/manuals/technical` conserva os mapas de sistemas/manutenção e as aprovações por contexto. Gravações em contextos distintos preservam as demais entradas; alterações no mesmo conteúdo conferem a impressão digital. Autoaprovação é recusada no servidor. Auditoria e notificações existentes permanecem. PDFs são acessados pelo download privado autorizado; organização e concessões de acesso ao empreendimento são verificadas.
 

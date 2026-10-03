@@ -1,8 +1,11 @@
+import { logSafeError } from "@/lib/security/logging"
 import { get, put } from "@vercel/blob"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { NextResponse } from "next/server"
 import { requireActiveMembership, requireCompanyRole } from "@/lib/organization"
+import { consumeRateLimit,RateLimitError } from "@/lib/security/rate-limit"
+import { assertImageFile,UploadValidationError } from "@/lib/security/uploads"
 
 const allowed = new Map([["image/png",".png"],["image/jpeg",".jpg"],["image/webp",".webp"]])
 function previewFile(pathname:string){
@@ -15,16 +18,23 @@ function previewFile(pathname:string){
 export async function POST(request:Request){
   try {
     const context=await requireCompanyRole(["admin"])
+    await consumeRateLimit(`organization-logo:${context.user.id}`, { max: 20, windowSeconds: 3600 })
     const form=await request.formData()
     const file=form.get("file")
     if(!(file instanceof File)||!allowed.has(file.type)||file.size>5_000_000||file.size===0)
       return NextResponse.json({error:"Envie uma imagem PNG, JPG ou WebP de até 5 MB."},{status:400})
+    await assertImageFile(file,5_000_000)
     const pathname="organization-logos/"+context.organization.id+"/"+crypto.randomUUID()+allowed.get(file.type)
     const target=previewFile(pathname)
     if(target){await mkdir(path.dirname(target),{recursive:true});await writeFile(target,Buffer.from(await file.arrayBuffer()))}
     else await put(pathname,file,{access:"private",contentType:file.type,addRandomSuffix:false})
     return NextResponse.json({url:"/api/organization/logo?pathname="+encodeURIComponent(pathname)})
-  }catch(e){return NextResponse.json({error:e instanceof Error?e.message:"Falha no upload"},{status:500})}
+  }catch(e){
+    if(e instanceof RateLimitError)return NextResponse.json({error:e.message},{status:429,headers:{"Retry-After":String(e.retryAfterSeconds)}})
+    if(e instanceof UploadValidationError)return NextResponse.json({error:e.message},{status:400})
+    logSafeError("organization.logo",e)
+    return NextResponse.json({error:"Falha no upload"},{status:500})
+  }
 }
 export async function GET(request:Request){
   const context=await requireActiveMembership()

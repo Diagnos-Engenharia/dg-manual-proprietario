@@ -10,6 +10,7 @@ export default function SignInPage() {
   const router = useRouter()
   const [error, setError] = useState("")
   const [pending, setPending] = useState(false)
+  const [recovery, setRecovery] = useState(false)
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError("")
@@ -49,7 +50,8 @@ export default function SignInPage() {
           <div className="flex items-start justify-between"><div><h1 className="text-[25px] font-semibold tracking-[-0.03em]">Bem-vindo de volta</h1><p className="mt-2 text-sm text-[#96a3b2]">Acesse sua conta para continuar.</p></div><span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#1769aa] text-sm font-bold text-white">i</span></div>
           <label className="block text-sm font-medium text-[#4d5d70]">Usuário ou E-mail<input name="email" type="email" required placeholder="seu@email.com" className="mt-2 h-11 w-full rounded-lg border border-[#b8c4ce] bg-white px-3 text-[#172033] outline-none transition focus:border-[#1769aa] focus:ring-2 focus:ring-[#1769aa]/15" /></label>
           <label className="block text-sm font-medium text-[#4d5d70]">Senha<input name="password" type="password" required minLength={8} placeholder="Sua senha" className="mt-2 h-11 w-full rounded-lg border border-[#b8c4ce] bg-white px-3 text-[#172033] outline-none transition focus:border-[#1769aa] focus:ring-2 focus:ring-[#1769aa]/15" /></label>
-          <div className="flex items-center justify-between gap-4 text-sm"><label className="flex items-center gap-2 text-[#7b8794]"><input type="checkbox" className="h-4 w-4 rounded border-[#aab8c4] accent-[#1769aa]" /> Lembrar dispositivo</label><button type="button" className="font-medium text-[#1769aa] hover:underline">Esqueci minha senha</button></div>
+          <div className="flex justify-end text-sm"><button type="button" onClick={() => setRecovery(value => !value)} aria-expanded={recovery} className="font-medium text-[#1769aa] hover:underline">Esqueci minha senha</button></div>
+          {recovery && <p role="status" className="rounded-lg bg-[#eef4ff] p-3 text-sm text-[#526577]">Solicite à construtora um link para redefinir sua senha. O link é válido por 15 minutos.</p>}
           {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
           <button disabled={pending} className="h-11 w-full rounded-lg bg-[#1769aa] px-4 text-sm font-semibold text-white shadow-md shadow-[#1769aa]/20 transition hover:bg-[#12598f] disabled:cursor-not-allowed disabled:opacity-60">{pending ? "Entrando..." : "ENTRAR NA MINHA CONTA"}</button>
           <p className="text-center text-sm text-[#96a3b2]">Ainda não possui acesso? <Link href="/sign-up" className="font-medium text-[#1769aa] hover:underline">Criar conta</Link></p>

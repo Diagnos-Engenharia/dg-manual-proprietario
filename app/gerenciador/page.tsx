@@ -6,13 +6,16 @@ import { requirePlatformManager } from "@/lib/organization"
 
 export const dynamic="force-dynamic"
 
-export default async function ManagerPage(){
+export default async function ManagerPage({searchParams}:{searchParams:Promise<{q?:string;page?:string}>}){
   const manager=await requirePlatformManager().catch(()=>null)
   if(!manager)redirect("/")
-  const [companies,aiIntegration]=await Promise.all([listManagedOrganizations(),getPlatformAiIntegration()])
+  const params=await searchParams
+  const [result,aiIntegration]=await Promise.all([listManagedOrganizations({search:params.q,page:Number(params.page)}),getPlatformAiIntegration()])
   return <ManagerDashboard
     managerName={manager.user.name}
-    companies={companies.map(company=>({...company,members:company.members.map(member=>({...member,lastAccessAt:member.lastAccessAt?.toISOString()??null}))}))}
+    managerEmail={manager.user.email}
+    companies={result.companies.map(company=>({...company,members:company.members.map(member=>({...member,lastAccessAt:member.lastAccessAt?.toISOString()??null}))}))}
+    pagination={result.pagination}
     aiIntegration={aiIntegration}
   />
 }

@@ -2,14 +2,15 @@ import Link from "next/link"
 import { redirect } from "next/navigation"
 import { headers } from "next/headers"
 import { auth } from "@/lib/auth"
-import { getActiveMembership,isCurrentUserPlatformManager } from "@/lib/organization"
+import { getOrganizationChoices,isCurrentUserPlatformManager } from "@/lib/organization"
 
 export default async function OnboardingPage() {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) redirect("/sign-in")
   if (await isCurrentUserPlatformManager()) redirect("/gerenciador")
-  const membership = await getActiveMembership()
-  if (membership) redirect("/")
+  const choices = await getOrganizationChoices()
+  if (choices.organizations.length > 1 && !choices.activeOrganizationId) redirect("/selecionar-organizacao")
+  if (choices.organizations.length) redirect("/")
   return <main className="flex min-h-screen items-center justify-center bg-background p-6">
     <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-8 shadow-sm">
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">DG Manual</p>

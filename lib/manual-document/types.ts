@@ -30,7 +30,7 @@ export type ManualSection = {
 export type ManualAttachment = { id: string; name: string; pathname: string; contentType: string; sizeBytes: number; policy: "include" | "reference" | "exclude"; sectionId: string }
 export type ManualDocument = {
   schemaVersion: 1
-  metadata: { developmentId: string; developmentName: string; organizationName: string; organizationLogo?: string | null; manualType: DocumentType; unitId?: string; unitLabel?: string; title: string; revision: number; date: string; generatedAt: string; fingerprint?: string; purpose?: "preview" | "publication" }
+  metadata: { developmentId: string; developmentName: string; organizationName: string; organizationLogo?: string | null; manualType: DocumentType; unitId?: string; unitLabel?: string; pageOrientation?: "portrait" | "landscape"; title: string; revision: number; date: string; generatedAt: string; fingerprint?: string; purpose?: "preview" | "publication" }
   identity: ManualIdentity
   sections: ManualSection[]
   attachments: ManualAttachment[]

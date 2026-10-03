@@ -6,6 +6,7 @@ import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { isGlobalAdmin, permittedDevelopmentIds, recordAudit, requireActiveMembership, requireCompanyRole, requireDevelopmentAccess, requireDevelopmentRole } from '@/lib/organization'
 import { changedValidationContexts } from '@/lib/manual-document/invalidation'
+import { assertId, assertIsoDate, assertSafeRichTextPayload, cleanText } from '@/lib/security/input'
 
 export async function getDevelopment(id: string) {
   await requireDevelopmentAccess(id)
@@ -29,27 +30,39 @@ export async function createDevelopment(input: {
   data: unknown
 }) {
   const context = await requireCompanyRole(["admin"])
-  await db.insert(developments).values({
-    id: input.id,
-    userId: context.user.id,
-    organizationId: context.organization.id,
-    name: input.name.trim(),
-    client: input.client.trim(),
-    deliveryDate: input.deliveryDate,
-    data: input.data,
-    masterProgress: 0,
+  const id = assertId(input.id, "Identificador do empreendimento")
+  const name = cleanText(input.name, "Nome do empreendimento", 160)
+  const client = cleanText(input.client, "Construtora", 160)
+  const deliveryDate = assertIsoDate(input.deliveryDate, "Data de entrega")
+  const data = assertSafeRichTextPayload(input.data)
+  await db.transaction(async tx=>{
+    await tx.insert(developments).values({
+      id,
+      userId: context.user.id,
+      organizationId: context.organization.id,
+      name,
+      client,
+      deliveryDate,
+      data,
+      masterProgress: 0,
+    })
+    await tx.insert(auditLogs).values({ id:crypto.randomUUID(), organizationId: context.organization.id, actorId: context.user.id, action: "development.created", entityType: "development", entityId: id, metadata: { path: ["empreendimento"], before: null, after: { name, client, deliveryDate } } })
   })
-  await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: "development.created", entityType: "development", entityId: input.id, metadata: { path: ["empreendimento"], before: null, after: { name: input.name, client: input.client, deliveryDate: input.deliveryDate } } })
   revalidatePath('/empreendimentos')
   revalidatePath('/')
-  return input.id
+  return id
 }
 
 export async function updateDevelopmentData(id: string, data: unknown) {
   const context = await requireDevelopmentRole(id,["admin","admin_empreendimento","editor"])
+  const safeData = assertSafeRichTextPayload(data)
   await db.transaction(async tx => {
-    await tx.update(developments).set({ data, lastEditorId: context.user.id, updatedAt: new Date() }).where(and(eq(developments.id, id), eq(developments.organizationId, context.organization.id)))
+    const current=(await tx.select().from(developments).where(and(eq(developments.id,id),eq(developments.organizationId,context.organization.id))).for("update"))[0]
+    if(!current)throw new Error("Empreendimento não encontrado")
+    if(current.version!==context.development.version)throw new Error("Atualize a página: o conteúdo foi alterado por outra pessoa")
+    await tx.update(developments).set({ data: safeData, version:current.version+1, lastEditorId: context.user.id, updatedAt: new Date() }).where(and(eq(developments.id, id), eq(developments.organizationId, context.organization.id)))
     await tx.update(developmentContentValidations).set({ status: "rascunho", lastEditorId: context.user.id, validatorId: null, comment: null, updatedAt: new Date() }).where(and(eq(developmentContentValidations.developmentId,id),eq(developmentContentValidations.organizationId,context.organization.id)))
+    await tx.insert(auditLogs).values({id:crypto.randomUUID(),organizationId:context.organization.id,actorId:context.user.id,action:"development.edited",entityType:"development",entityId:id,metadata:{version:current.version+1,path:["conteudo"]}})
   })
   revalidatePath(`/empreendimentos/${id}`)
 }
@@ -66,7 +79,7 @@ export async function getFinishingTable(developmentId: string, typology: string)
 
 export async function saveFinishingTable(input: { id?: string; developmentId: string; tower: string; typology: string; unitModel: string; area: string; data: FinishingTableData; expectedRevision?: number }) {
   const context = await requireDevelopmentRole(input.developmentId,["admin","admin_empreendimento","editor"])
-  const { id, revision, before } = await db.transaction(async tx => {
+  const { id, revision } = await db.transaction(async tx => {
     // Issuance locks the same parent before its final source check. Locking it
     // here also serializes new table inserts, which have no existing row to lock.
     const development = (await tx.select({ id: developments.id }).from(developments).where(and(eq(developments.id, input.developmentId), eq(developments.organizationId, context.organization.id))).for("update"))[0]
@@ -79,9 +92,9 @@ export async function saveFinishingTable(input: { id?: string; developmentId: st
     if (existing) await tx.update(finishingTables).set({ tower: input.tower.trim(), unitModel: input.unitModel.trim(), area: input.area.trim(), data: input.data, revision, status: "rascunho", lastEditorId: context.user.id, updatedAt: new Date() }).where(eq(finishingTables.id, id))
     else await tx.insert(finishingTables).values({ id, developmentId: input.developmentId, organizationId: context.organization.id, tower: input.tower.trim(), typology: input.typology.trim(), unitModel: input.unitModel.trim(), area: input.area.trim(), data: input.data, revision, lastEditorId: context.user.id })
     await tx.insert(finishingTableHistory).values({ id: crypto.randomUUID(), finishingTableId: id, developmentId: input.developmentId, organizationId: context.organization.id, revision, status: "rascunho", data: input.data, changedBy: context.user.id })
-    return { id, revision, before: existing?.data ?? null }
+    await tx.insert(auditLogs).values({ id:crypto.randomUUID(), organizationId: context.organization.id, actorId: context.user.id, action: "finishing_table.edited", entityType: "finishing_table", entityId: id, metadata: { developmentId: input.developmentId, path: ["acabamentos", input.typology], before: existing?.data ?? null, after: input.data, revision, rows: Object.values(input.data).flat().length } })
+    return { id, revision }
   })
-  await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: "finishing_table.edited", entityType: "finishing_table", entityId: id, metadata: { developmentId: input.developmentId, path: ["acabamentos", input.typology], before, after: input.data, revision, rows: Object.values(input.data).flat().length } })
   revalidatePath(`/empreendimentos/${input.developmentId}`)
   return { id, revision, updatedAt: new Date().toISOString() }
 }
@@ -121,13 +134,14 @@ function auditChanges(before: unknown, after: unknown, path: string[], depth = 0
 
 export async function saveDevelopmentModulePath(id: string, path: string[], value: unknown, expectedUpdatedAt?: string) {
   const context = await requireDevelopmentRole(id,["admin","admin_empreendimento","editor"])
-  if (path.length === 0 || path.some((segment) => !/^[a-zA-Z0-9_-]+$/.test(segment))) throw new Error("Caminho de persistência inválido")
+  if (path.length === 0 || path.length > 8 || path.some((segment) => !/^[a-zA-Z0-9_-]{1,100}$/.test(segment))) throw new Error("Caminho de persistência inválido")
+  const safeValue = assertSafeRichTextPayload(value)
   const conditions = [eq(developments.id, id), eq(developments.organizationId, context.organization.id)]
   if (expectedUpdatedAt) conditions.push(eq(developments.updatedAt, new Date(expectedUpdatedAt)))
   const beforeRows = await db.select({ data: developments.data, updatedAt: developments.updatedAt, version: developments.version }).from(developments).where(and(eq(developments.id, id), eq(developments.organizationId, context.organization.id))).limit(1)
   if (!beforeRows[0]) throw new Error("Empreendimento não encontrado")
   const previous = path.reduce<unknown>((node, key) => node && typeof node === "object" ? (node as Record<string, unknown>)[key] : undefined, beforeRows[0].data)
-  if (JSON.stringify(previous) === JSON.stringify(value)) return { updatedAt: beforeRows[0].updatedAt.toISOString(), version: beforeRows[0].version }
+  if (JSON.stringify(previous) === JSON.stringify(safeValue)) return { updatedAt: beforeRows[0].updatedAt.toISOString(), version: beforeRows[0].version }
   const jsonPath = `{${path.join(",")}}`
   // jsonb_set only creates the final key: construct missing ancestors atomically.
   let nextData = sql`coalesce(${developments.data}, '{}'::jsonb)`
@@ -135,31 +149,39 @@ export async function saveDevelopmentModulePath(id: string, path: string[], valu
     const parentPath = `{${path.slice(0, depth).join(",")}}`
     nextData = sql`jsonb_set(${nextData}, ${parentPath}::text[], coalesce(nullif(${developments.data} #> ${parentPath}::text[], 'null'::jsonb), '{}'::jsonb), true)`
   }
-  nextData = sql`jsonb_set(${nextData}, ${jsonPath}::text[], ${JSON.stringify(value)}::jsonb, true)`
+  nextData = sql`jsonb_set(${nextData}, ${jsonPath}::text[], ${JSON.stringify(safeValue)}::jsonb, true)`
+  const changes=auditChanges(previous,safeValue,path)
   const result = await db.transaction(async tx => {
     const saved = await tx.update(developments).set({ data: nextData, updatedAt: new Date(), lastEditorId: context.user.id, version: sql`${developments.version} + 1` }).where(and(...conditions)).returning({ data: developments.data, updatedAt: developments.updatedAt, version: developments.version })
-    if (saved[0]) for (const change of changedValidationContexts(beforeRows[0].data, saved[0].data)) await tx.update(developmentContentValidations).set({ status: "rascunho", lastEditorId: context.user.id, validatorId: null, comment: null, updatedAt: new Date() }).where(and(eq(developmentContentValidations.developmentId,id),eq(developmentContentValidations.organizationId,context.organization.id),eq(developmentContentValidations.section,change.section),eq(developmentContentValidations.contextKey,change.contextKey)))
+    if (saved[0]) {
+      for (const change of changedValidationContexts(beforeRows[0].data, saved[0].data)) await tx.update(developmentContentValidations).set({ status: "rascunho", lastEditorId: context.user.id, validatorId: null, comment: null, updatedAt: new Date() }).where(and(eq(developmentContentValidations.developmentId,id),eq(developmentContentValidations.organizationId,context.organization.id),eq(developmentContentValidations.section,change.section),eq(developmentContentValidations.contextKey,change.contextKey)))
+      if(changes.length)await tx.insert(auditLogs).values(changes.map(change=>({id:crypto.randomUUID(),organizationId:context.organization.id,actorId:context.user.id,action:"development.path_edited",entityType:"development",entityId:id,metadata:{...change,version:saved[0].version}})))
+    }
     return saved
   })
   if (!result[0]) throw new Error(expectedUpdatedAt ? "Este conteúdo foi atualizado por outro usuário. Revise as alterações antes de salvar." : "Empreendimento não encontrado")
-  for (const change of auditChanges(previous,value,path)) await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: "development.path_edited", entityType: "development", entityId: id, metadata: { ...change, version: result[0].version } })
   revalidatePath(`/empreendimentos/${id}`)
   return { updatedAt: result[0].updatedAt.toISOString(), version: result[0].version }
 }
 
 export async function saveDevelopmentModule(id: string, module: string, value: unknown, expectedUpdatedAt?: string) {
   const context = await requireDevelopmentRole(id,["admin","admin_empreendimento","editor"])
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(module)) throw new Error("Módulo inválido")
+  const safeValue = assertSafeRichTextPayload(value)
   const conditions = [eq(developments.id, id), eq(developments.organizationId, context.organization.id)]
   if (expectedUpdatedAt) conditions.push(eq(developments.updatedAt, new Date(expectedUpdatedAt)))
   const beforeRows = await db.select({ data: developments.data }).from(developments).where(and(eq(developments.id, id), eq(developments.organizationId, context.organization.id))).limit(1)
   const previous = (beforeRows[0]?.data as Record<string, unknown> | undefined)?.[module]
+  const changes=auditChanges(previous,safeValue,[module])
   const result = await db.transaction(async tx => {
-    const saved = await tx.update(developments).set({ data: sql`coalesce(${developments.data}, '{}'::jsonb) || ${JSON.stringify({ [module]: value })}::jsonb`, updatedAt: new Date(), lastEditorId: context.user.id, version: sql`${developments.version} + 1`, workflowStatus: sql`case when ${developments.workflowStatus} in ('aprovado', 'publicado') then 'em_elaboracao' else ${developments.workflowStatus} end`, approvedVersion: null, approvedBy: null, approvedAt: null }).where(and(...conditions)).returning({ data: developments.data, updatedAt: developments.updatedAt, version: developments.version })
-    if (saved[0]) for (const change of changedValidationContexts(beforeRows[0]?.data, saved[0].data)) await tx.update(developmentContentValidations).set({ status: "rascunho", lastEditorId: context.user.id, validatorId: null, comment: null, updatedAt: new Date() }).where(and(eq(developmentContentValidations.developmentId,id),eq(developmentContentValidations.organizationId,context.organization.id),eq(developmentContentValidations.section,change.section),eq(developmentContentValidations.contextKey,change.contextKey)))
+    const saved = await tx.update(developments).set({ data: sql`coalesce(${developments.data}, '{}'::jsonb) || ${JSON.stringify({ [module]: safeValue })}::jsonb`, updatedAt: new Date(), lastEditorId: context.user.id, version: sql`${developments.version} + 1`, workflowStatus: sql`case when ${developments.workflowStatus} in ('aprovado', 'publicado') then 'em_elaboracao' else ${developments.workflowStatus} end`, approvedVersion: null, approvedBy: null, approvedAt: null }).where(and(...conditions)).returning({ data: developments.data, updatedAt: developments.updatedAt, version: developments.version })
+    if (saved[0]) {
+      for (const change of changedValidationContexts(beforeRows[0]?.data, saved[0].data)) await tx.update(developmentContentValidations).set({ status: "rascunho", lastEditorId: context.user.id, validatorId: null, comment: null, updatedAt: new Date() }).where(and(eq(developmentContentValidations.developmentId,id),eq(developmentContentValidations.organizationId,context.organization.id),eq(developmentContentValidations.section,change.section),eq(developmentContentValidations.contextKey,change.contextKey)))
+      if(changes.length)await tx.insert(auditLogs).values(changes.map(change=>({id:crypto.randomUUID(),organizationId:context.organization.id,actorId:context.user.id,action:"development.edited",entityType:"development",entityId:id,metadata:{...change,version:saved[0].version}})))
+    }
     return saved
   })
   if (!result[0]) throw new Error(expectedUpdatedAt ? "Este conteúdo foi atualizado por outro usuário. Revise as alterações antes de salvar." : "Empreendimento não encontrado")
-  for (const change of auditChanges(previous,value,[module])) await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: "development.edited", entityType: "development", entityId: id, metadata: { ...change, version: result[0].version } })
   revalidatePath(`/empreendimentos/${id}`)
   return { updatedAt: result[0].updatedAt.toISOString(), version: result[0].version }
 }
@@ -176,8 +198,8 @@ export async function listDevelopmentHistory(developmentId: string) {
     createdAt: auditLogs.createdAt,
     actorName: user.name,
     actorEmail: user.email,
-  }).from(auditLogs).innerJoin(user, eq(auditLogs.actorId, user.id))
+  }).from(auditLogs).leftJoin(user, eq(auditLogs.actorId, user.id))
     .where(and(eq(auditLogs.organizationId, context.organization.id), or(eq(auditLogs.entityId, developmentId), sql`${auditLogs.metadata} ->> 'developmentId' = ${developmentId}`)))
     .orderBy(desc(auditLogs.createdAt)).limit(200)
-  return rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }))
+  return rows.map((row) => ({ ...row, actorName: row.actorName ?? "Usuário removido", actorEmail: row.actorEmail ?? "", createdAt: row.createdAt.toISOString() }))
 }

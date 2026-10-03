@@ -9,7 +9,12 @@ export function validateFileMetadata(name: unknown, contentType: unknown, size: 
   if (typeof size !== "number" || !Number.isSafeInteger(size) || size <= 0) throw new DatabookError("O arquivo está vazio.")
   if (size > DATABOOK_MAX_BYTES) throw new DatabookError("O arquivo deve ter no máximo 50 MB.", 413)
   if (typeof contentType !== "string" || contentType.length > 200 || (contentType.trim() && !/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i.test(contentType.trim()))) throw new DatabookError("Tipo de arquivo inválido.")
-  return { name: normalizeDatabookName(name), contentType: contentType.trim().toLowerCase() || "application/octet-stream", size }
+  const normalizedName = normalizeDatabookName(name)
+  const normalizedType = contentType.trim().toLowerCase() || "application/octet-stream"
+  const blockedExtensions = [".html",".htm",".svg",".js",".mjs",".cjs",".exe",".dll",".bat",".cmd",".ps1",".sh",".php",".jsp",".msi"]
+  const blockedMime = new Set(["text/html","image/svg+xml","application/javascript","text/javascript","application/x-msdownload"])
+  if (blockedExtensions.some(ext => normalizedName.toLowerCase().endsWith(ext)) || blockedMime.has(normalizedType)) throw new DatabookError("Este tipo de arquivo não é permitido no Databook.")
+  return { name: normalizedName, contentType: normalizedType, size }
 }
 
 export function uploadPath(organizationId: string, developmentId: string, id: string, name: string) {

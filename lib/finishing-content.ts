@@ -5,14 +5,19 @@ export const finishingRequiredFields: Record<FinishingGroup, string[]> = { ambie
 export function emptyFinishingData(): FinishingTableData { return { ambientes: [], materiais: [], hidraulicas: [], esquadrias: [], eletricas: [] } }
 export function normalizedUnitKey(tower: string, number: string) { return [tower, number].map(value => value.normalize("NFC").trim().replace(/\s+/g, " ").toLocaleLowerCase("pt-BR").normalize("NFC")).join("\u0000") }
 export function unitLabel(unit: Pick<DevelopmentUnit, "tower" | "number">) { return [unit.tower, "Unidade " + unit.number].filter(Boolean).join(" · ") }
-export function normalizeUnitInput(input: UnitInput): Omit<UnitInput, "id" | "expectedRevision"> {
+type UnitIdentity = Pick<DevelopmentUnit, "tower" | "floor" | "number" | "typology" | "area">
+type LegacyUnitIdentity = Pick<DevelopmentUnit, "floor" | "typology" | "area">
+export function normalizeUnitInput(input: UnitInput, previous?: LegacyUnitIdentity): UnitIdentity {
   const values = Object.fromEntries(["tower", "floor", "number", "typology", "area"].map(key => {
-    const value = input[key as keyof UnitInput] ?? (["tower", "floor", "area"].includes(key) ? "" : undefined)
+    // Hidden legacy fields are not an empty replacement. Preserve their saved
+    // values exactly when the simplified form omits them, even older formats.
+    if (["floor", "typology", "area"].includes(key) && input[key as keyof UnitInput] === undefined) return [key, previous?.[key as keyof LegacyUnitIdentity] ?? ""]
+    const value = input[key as keyof UnitInput] ?? (key === "tower" ? "" : undefined)
     if (typeof value !== "string" || value.length > 200) throw new Error("Identificação da unidade inválida")
     return [key, value.normalize("NFC").trim().replace(/\s+/g, " ")]
-  })) as Omit<UnitInput, "id" | "expectedRevision">
-  if (!values.number || !values.typology) throw new Error("Informe número e tipologia da unidade")
-  if (values.area && (!/^\d+(?:[.,]\d+)?(?:\s*m²)?$/i.test(values.area) || !(Number(values.area.replace(/\s*m²$/i, "").replace(",", ".")) > 0))) throw new Error("Área da unidade inválida: informe um valor positivo")
+  })) as UnitIdentity
+  if (!values.number) throw new Error("Informe o número da unidade")
+  if (input.area !== undefined && values.area && (!/^\d+(?:[.,]\d+)?(?:\s*m²)?$/i.test(values.area) || !(Number(values.area.replace(/\s*m²$/i, "").replace(",", ".")) > 0))) throw new Error("Área da unidade inválida: informe um valor positivo")
   return values
 }
 export function normalizeFinishingData(value: unknown): FinishingTableData {
