@@ -56,7 +56,9 @@ export async function getOrganizationChoices(){
   const configured=profile[0]?.activeOrganizationId??null
   const validConfigured=configured&&rows.some(row=>row.organization.id===configured)?configured:null
   const activeOrganizationId=validConfigured??(rows.length===1?rows[0].organization.id:null)
-  if(activeOrganizationId!==configured&&rows.length===1){
+  if(configured&&!validConfigured){
+    await db.update(userTable).set({activeOrganizationId:null,updatedAt:new Date()}).where(eq(userTable.id,user.id))
+  }else if(activeOrganizationId!==configured&&rows.length===1){
     await db.update(userTable).set({activeOrganizationId,updatedAt:new Date()}).where(eq(userTable.id,user.id))
   }
   return {
