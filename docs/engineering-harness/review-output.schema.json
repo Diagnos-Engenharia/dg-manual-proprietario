@@ -122,7 +122,7 @@
     },
     "preview": {
       "type": "object", "additionalProperties": false,
-      "required": ["status", "functionalQa"],
+      "required": ["status", "deploymentState", "functionalQa"],
       "properties": {
         "status": { "type": "string", "enum": ["available", "unavailable", "failed", "unknown"] },
         "deploymentState": { "type": "string", "enum": ["ready", "building", "error", "unknown", "not_applicable"] },

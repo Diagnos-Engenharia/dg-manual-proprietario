@@ -35,6 +35,8 @@ test('DEH report schema is parseable and requires the review and evidence contra
   assert.ok(schema.$defs.visual.properties.scenarios.allOf.some(rule => rule.contains.properties.viewport.const === 'desktop'))
   assert.ok(schema.$defs.visualScenario.allOf.some(rule => rule.if.properties.status.const === 'passed' && rule.then.required.includes('evidence')))
   assert.ok(schema.$defs.preview.properties.status.enum.includes('unavailable'))
+  assert.ok(schema.$defs.preview.required.includes('deploymentState'))
+  assert.ok(schema.$defs.preview.properties.deploymentState.enum.includes('not_applicable'))
   assert.ok(schema.$defs.preview.allOf.some(rule => rule.if.properties.functionalQa.const === 'passed' && rule.then.required.includes('evidence')))
 })
 
