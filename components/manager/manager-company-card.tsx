@@ -129,10 +129,11 @@ function DevelopmentSelector({developments,selected,onChange}:{developments:Deve
 function MemberRow({member,company,busy,execute}:{member:ManagedMember;company:ManagedCompany;busy:boolean;execute:<T>(fn:()=>Promise<ManagerActionResult<T>>)=>Promise<ManagerActionResult<T>>}){
   const [role,setRole]=useState<"admin"|"editor">(member.role==="owner"||member.role==="admin"?"admin":"editor")
   const [developmentIds,setDevelopmentIds]=useState<string[]>(member.assignments)
-  const enabled=member.accessStatus==="active"&&member.status==="active"
+  const accountEnabled=member.accessStatus==="active"
+  const membershipActive=member.status==="active"
 
   async function toggleAccess(){
-    const status=enabled?"disabled":"active"
+    const status=accountEnabled?"disabled":"active"
     if(status==="disabled"&&!window.confirm("Desabilitar a conta de "+member.name+"? Todas as sessões serão encerradas."))return
     await execute(()=>managerSetUserAccess({userId:member.userId,status}))
   }
@@ -143,8 +144,8 @@ function MemberRow({member,company,busy,execute}:{member:ManagedMember;company:M
 
   return <div className="space-y-3 rounded-lg border border-border p-3">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="truncate text-sm font-medium">{member.name}</p><span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold",enabled?"bg-emerald-500/10 text-emerald-600":"bg-red-500/10 text-red-600")}>{enabled?"Habilitado":"Inativo"}</span></div><p className="truncate text-xs text-muted-foreground">{member.email}</p><p className="mt-0.5 text-[11px] text-muted-foreground">{roleName(member.role)}</p></div>
-      <div className="flex flex-wrap gap-2"><button type="button" role="switch" aria-checked={enabled} disabled={busy} onClick={()=>void toggleAccess()} className={cn("inline-flex h-8 items-center gap-2 rounded-full border px-2.5 text-xs font-medium",enabled?"border-emerald-500/30 bg-emerald-500/10 text-emerald-700":"border-red-500/30 bg-red-500/10 text-red-700")}><span className={cn("h-3 w-3 rounded-full",enabled?"bg-emerald-500":"bg-red-500")}/>{enabled?"Desabilitar":"Habilitar"}</button><Button size="sm" variant="ghost" disabled={busy} onClick={()=>void remove()}><Trash2 className="h-4 w-4"/>Excluir</Button></div>
+      <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="truncate text-sm font-medium">{member.name}</p><span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold",accountEnabled?"bg-emerald-500/10 text-emerald-600":"bg-red-500/10 text-red-600")}>{accountEnabled?"Conta habilitada":"Conta inativa"}</span>{!membershipActive&&<span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-700">{member.status==="removed"?"Acesso removido":"Acesso suspenso"}</span>}</div><p className="truncate text-xs text-muted-foreground">{member.email}</p><p className="mt-0.5 text-[11px] text-muted-foreground">{roleName(member.role)}</p></div>
+      <div className="flex flex-wrap gap-2"><button type="button" role="switch" aria-checked={accountEnabled} disabled={busy} onClick={()=>void toggleAccess()} className={cn("inline-flex h-8 items-center gap-2 rounded-full border px-2.5 text-xs font-medium",accountEnabled?"border-emerald-500/30 bg-emerald-500/10 text-emerald-700":"border-red-500/30 bg-red-500/10 text-red-700")}><span className={cn("h-3 w-3 rounded-full",accountEnabled?"bg-emerald-500":"bg-red-500")}/>{accountEnabled?"Desabilitar":"Habilitar"}</button><Button size="sm" variant="ghost" disabled={busy} onClick={()=>void remove()}><Trash2 className="h-4 w-4"/>Excluir</Button></div>
     </div>
     <div className="grid gap-3 sm:grid-cols-[180px_1fr_auto] sm:items-end">
       <div className="space-y-1"><Label className="text-xs">Perfil</Label><select value={role} disabled={busy} onChange={event=>{const next=event.target.value as "admin"|"editor";setRole(next);if(next==="admin")setDevelopmentIds([])}} className="h-9 w-full rounded-md border border-input bg-background px-2 text-xs"><option value="admin">Administrador</option><option value="editor">Construtor</option></select></div>
