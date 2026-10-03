@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { and, eq, inArray, or, sql } from "drizzle-orm"
 import { db } from "@/lib/db"
 import { auditLogs, developmentContentValidations, developments, members, organizationNotifications } from "@/lib/db/schema"
-import { canEditContent, canValidateContent, requireDevelopmentAccess } from "@/lib/organization"
+import { canEditContent, canValidateContent, requireDevelopmentAccess } from "@/lib/organization"\nimport { assertSafeRichTextPayload } from "@/lib/security/input"
 import { htmlToLines, manualScope, orderManualSystems } from "@/lib/manual-content"
 import type { MaintenanceItem, ManualType } from "@/lib/mock-data"
 import type { TechnicalAction, TechnicalCatalog, TechnicalSection, TechnicalSystem } from "@/lib/technical-content"
@@ -98,6 +98,7 @@ export async function mutateTechnicalSystem(input: TechnicalMutation, requireFin
       let value: string | MaintenanceItem[]
       if (input.section === "sistemas") {
         if (typeof input.html !== "string" || input.html.length > 500_000) throw new TechnicalContentError("Descrição técnica inválida ou acima do limite da seção", 400)
+        try { assertSafeRichTextPayload(input.html) } catch (error) { throw new TechnicalContentError(error instanceof Error ? error.message : "Descrição técnica contém conteúdo não permitido", 400) }
         value = input.html
       } else value = savedMaintenance(input.maintenance)
       const previous = input.section === "sistemas" ? system.html : system.maintenance
