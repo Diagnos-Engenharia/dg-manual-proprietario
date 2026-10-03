@@ -5,7 +5,7 @@ import { canEditContent, requireDevelopmentAccess } from "@/lib/organization"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
 import { databookNameKey, DATABOOK_GENERAL_FOLDER, normalizeDatabookName, resolveDatabookFolders, type DatabookCatalog, type DatabookFile, type DatabookFolder } from "./types"
 import { DatabookError, signUploadTicket, uploadPath, validateFileMetadata, verifyUploadTicket, type UploadTicket } from "./ticket"
-import { hasLocalDatabookStorage, headDatabookFile, removeDatabookFile, requireDatabookStorage } from "./storage"
+import { hasLocalDatabookStorage, headDatabookFile, readDatabookFileHead, removeDatabookFile, requireDatabookStorage } from "./storage"\nimport { assertDatabookContent } from "@/lib/security/uploads"
 
 type Context = Awaited<ReturnType<typeof requireDevelopmentAccess>>
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
@@ -141,6 +141,8 @@ export async function finalizeDatabookUpload(value: unknown) {
   if (ticket.expiresAt <= Date.now()) throw new DatabookError("A autorização de envio expirou. Tente novamente.", 409)
   const blob = await headDatabookFile(ticket.pathname)
   if (blob.pathname !== ticket.pathname || !blob.private || blob.size !== ticket.size) throw new DatabookError("O arquivo recebido não corresponde ao envio autorizado.", 409)
+  try { assertDatabookContent(ticket.name,ticket.contentType,await readDatabookFileHead(ticket.pathname)) }
+  catch(error){ throw new DatabookError(error instanceof Error?error.message:"O conteúdo real do arquivo não é permitido.",400) }
   return db.transaction(async tx => {
     const development = await lockDevelopment(tx, context)
     const files = await filesFor(tx, development.id)
