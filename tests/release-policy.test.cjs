@@ -37,6 +37,8 @@ test('DEH report schema is parseable and requires the review and evidence contra
   const commandEvidence = schema.$defs.check.allOf.find(rule => rule.if.properties.evidence?.properties?.kind?.const === 'command')
   assert.ok(commandEvidence.then.required.includes('command'))
   assert.equal(commandEvidence.then.properties.command.minLength, 1)
+  const commandFieldEvidence = schema.$defs.check.allOf.find(rule => rule.if.required?.includes('command'))
+  assert.equal(commandFieldEvidence.then.properties.evidence.properties.kind.const, 'command')
   assert.ok(schema.$defs.visual.properties.scenarios.allOf.some(rule => rule.contains.properties.viewport.const === 'mobile'))
   assert.ok(schema.$defs.visual.properties.scenarios.allOf.some(rule => rule.contains.properties.viewport.const === 'tablet'))
   assert.ok(schema.$defs.visual.properties.scenarios.allOf.some(rule => rule.contains.properties.viewport.const === 'desktop'))

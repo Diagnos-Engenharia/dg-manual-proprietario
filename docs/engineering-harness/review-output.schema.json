@@ -92,8 +92,18 @@
         "note": { "type": "string" }
       },
       "allOf": [
-        { "if": { "properties": { "status": { "const": "passed" } }, "required": ["status"] }, "then": { "required": ["evidence"], "properties": { "evidence": { "properties": { "kind": { "enum": ["static", "command", "browser", "preview", "deployment"] } }, "required": ["kind"] } } } },
-        { "if": { "properties": { "status": { "const": "passed" }, "evidence": { "properties": { "kind": { "const": "command" } }, "required": ["kind"] } }, "required": ["status", "evidence"] }, "then": { "required": ["command"], "properties": { "command": { "minLength": 1 } } } }
+        {
+          "if": { "properties": { "status": { "const": "passed" } }, "required": ["status"] },
+          "then": { "required": ["evidence"], "properties": { "evidence": { "properties": { "kind": { "enum": ["static", "command", "browser", "preview", "deployment"] } }, "required": ["kind"] } } }
+        },
+        {
+          "if": { "properties": { "status": { "const": "passed" }, "evidence": { "properties": { "kind": { "const": "command" } }, "required": ["kind"] } }, "required": ["status", "evidence"] },
+          "then": { "required": ["command"], "properties": { "command": { "minLength": 1 } } }
+        },
+        {
+          "if": { "properties": { "status": { "const": "passed" }, "command": { "type": "string", "minLength": 1 } }, "required": ["status", "command"] },
+          "then": { "properties": { "evidence": { "properties": { "kind": { "const": "command" } }, "required": ["kind"] } } }
+        }
       ]
     },
     "visual": {
