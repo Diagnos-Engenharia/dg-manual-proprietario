@@ -175,6 +175,9 @@ export async function acceptOrganizationInvitation(token: string) {
     return invite
   })
 
+  await db.update(user).set({activeOrganizationId:accepted.organizationId,updatedAt:new Date()})
+    .where(and(eq(user.id,current.id),isNull(user.activeOrganizationId)))
+
   await recordAudit({
     organizationId: accepted.organizationId,
     actorId: current.id,
