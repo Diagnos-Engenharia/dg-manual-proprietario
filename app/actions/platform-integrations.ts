@@ -45,12 +45,14 @@ export async function getPlatformAiIntegration(){
     updatedAt:platformIntegrations.updatedAt,
   }).from(platformIntegrations).where(eq(platformIntegrations.provider,"openai")).limit(1))[0]
   if(!row)return null
+  const config=(row.config??{}) as {model?:unknown}
+  const model=typeof config.model==="string"?config.model:""
   return {
     provider:row.provider,
     status:row.status,
     testedAt:row.testedAt?.toISOString()??null,
     updatedAt:row.updatedAt.toISOString(),
-    config:row.config as {model?:string},
+    config:{model},
   }
 }
 
@@ -62,7 +64,7 @@ export async function savePlatformAiIntegration(input:{apiKey:string;model:strin
     const model=input.model.trim()
     if(!model||model.length>200)throw new Error("Informe um modelo OpenAI válido de até 200 caracteres")
     if(apiKey.length>8192)throw new Error("A chave da OpenAI excede o tamanho permitido")
-    const existing=(await db.select().from(platformIntegrations).limit(1))[0]
+    const existing=(await db.select().from(platformIntegrations).where(eq(platformIntegrations.provider,"openai")).limit(1))[0]
     if(!apiKey&&!existing)throw new Error("Informe a chave da API da OpenAI")
     if(!apiKey&&existing?.provider!=="openai")throw new Error("Informe uma chave da OpenAI para substituir a integração atual")
     const encryptedKey=apiKey?seal(apiKey):existing!.encryptedKey
@@ -96,7 +98,7 @@ export async function testPlatformAiIntegration():Promise<PlatformActionResult>{
   try{
     const context=await requirePlatformManager()
     await consumeRateLimit("platform-ai-test:"+context.user.id,{max:30,windowSeconds:3600})
-    const row=(await db.select().from(platformIntegrations).limit(1))[0]
+    const row=(await db.select().from(platformIntegrations).where(eq(platformIntegrations.provider,"openai")).limit(1))[0]
     if(!row)throw new Error("Configure a OpenAI antes de testar")
     if(row.provider!=="openai")throw new Error("A integração atual não é OpenAI. Salve novamente a configuração.")
     const config=(row.config??{}) as {model?:string}
