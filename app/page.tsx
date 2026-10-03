@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth"
 import { AppShell } from "@/components/dashboard/app-shell"
 import { PortfolioTable } from "@/components/dashboard/portfolio-table"
 import { listDevelopments } from "@/app/actions/developments"
-import { getActiveMembership,isCurrentUserPlatformManager } from "@/lib/organization"
+import { getActiveMembership,getOrganizationChoices,isCurrentUserPlatformManager } from "@/lib/organization"
 import { toDashboardDevelopment } from "@/lib/dashboard"
 import { DashboardInsights, DashboardPrioritySummary } from "@/components/dashboard/dashboard-insights"
 
