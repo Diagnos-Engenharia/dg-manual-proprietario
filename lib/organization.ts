@@ -164,9 +164,8 @@ export async function canAccessDevelopment(developmentId:string) {
   try { await requireDevelopmentAccess(developmentId); return true }catch{return false}
 }
 
-type AuditWriter=Pick<typeof db,"insert">
-export async function recordAudit(input:{organizationId:string;actorId:string;action:string;entityType:string;entityId:string;metadata?:Record<string,unknown>},writer:AuditWriter=db){
-  await writer.insert(auditLogs).values({id:crypto.randomUUID(),...input,metadata:input.metadata??{}})
+export async function recordAudit(input:{organizationId:string;actorId:string;action:string;entityType:string;entityId:string;metadata?:Record<string,unknown>}){
+  await db.insert(auditLogs).values({id:crypto.randomUUID(),...input,metadata:input.metadata??{}})
 }
 
 export function canEditContent(role:DevelopmentRole){return role==="admin"||role==="admin_empreendimento"||role==="editor"}
