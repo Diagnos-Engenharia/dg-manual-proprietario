@@ -16,7 +16,7 @@ export async function POST(request: Request) {
       const value = form.get("ticket")
       const { ticket } = await authorizeDatabookTicket(value)
       if (!(file instanceof File) || file.size !== ticket.size || validateFileMetadata(file.name, file.type || "application/octet-stream", file.size).name !== ticket.name || (file.type || "application/octet-stream") !== ticket.contentType) throw new DatabookError("O arquivo não corresponde ao envio autorizado.")
-      assertDatabookFile(file)
+      await assertDatabookFile(file)
       await writeLocalDatabookFile(ticket.pathname, file)
       return NextResponse.json({ file: await finalizeDatabookUpload(value) }, { headers: databookHeaders })
     }
