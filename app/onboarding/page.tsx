@@ -2,7 +2,7 @@ import Link from "next/link"
 import { redirect } from "next/navigation"
 import { headers } from "next/headers"
 import { auth } from "@/lib/auth"
-import { getActiveMembership,isCurrentUserPlatformManager } from "@/lib/organization"
+import { getOrganizationChoices,isCurrentUserPlatformManager } from "@/lib/organization"
 
 export default async function OnboardingPage() {
   const session = await auth.api.getSession({ headers: await headers() })
