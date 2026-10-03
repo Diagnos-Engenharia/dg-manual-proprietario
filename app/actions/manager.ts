@@ -5,10 +5,14 @@ import { and, count, eq, inArray, or } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { db } from "@/lib/db"
 import {
+  auditLogs,
   developmentAssignments,
   developments,
   members,
+  organizationApiKeys,
+  organizationIntegrations,
   organizationInvitations,
+  organizationNotifications,
   organizations,
   session,
   user,
