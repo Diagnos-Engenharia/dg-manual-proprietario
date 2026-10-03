@@ -14,7 +14,10 @@
     "test:composer": "node tests/manual-composer.browser.cjs",
     "test:security": "node tests/security-static.cjs && node tests/security-runtime.cjs",
     "test:domain": "tsx --test tests/manual-*.test.ts tests/databook*.test.ts",
-    "test:gate": "pnpm run test:security && pnpm run test:domain"
+    "test:gate": "pnpm run test:security && pnpm run test:domain && pnpm run test:qa-contract",
+    "test:qa-contract": "node tests/qa-contract.cjs",
+    "test:e2e": "node tests/manual-composer.browser.cjs",
+    "test:release": "pnpm run test:gate && pnpm run test:e2e"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
@@ -69,4 +72,4 @@
       "hono": "4.12.25"
     }
   }
-}
+}\n
