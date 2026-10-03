@@ -4,7 +4,7 @@ import { createHash } from "node:crypto"
 import { and, count, eq, inArray, isNull, or, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { db } from "@/lib/db"
-import { developmentAssignments, developments, members, organizations, organizationInvitations, user } from "@/lib/db/schema"
+import { auditLogs, developmentAssignments, developments, members, organizations, organizationInvitations, user } from "@/lib/db/schema"
 import { isGlobalAdmin, recordAudit, requireActiveMembership, requireAuthenticatedUser, requireCompanyRole, requirePlatformManager, type DevelopmentRole } from "@/lib/organization"
 
 const hashToken = (token: string) => createHash("sha256").update(token).digest("hex")
@@ -47,7 +47,7 @@ export async function updateMemberStatus(memberId: string, status: "active" | "s
   await db.transaction(async tx=>{
     await tx.update(members).set({ status }).where(and(eq(members.id, memberId), eq(members.organizationId, context.organization.id)))
     if(status!=="active")await tx.update(user).set({activeOrganizationId:null,updatedAt:new Date()}).where(and(eq(user.id,target[0].userId),eq(user.activeOrganizationId,context.organization.id)))
-    await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: `member.${status}`, entityType: "member", entityId: memberId },tx)
+    await tx.insert(auditLogs).values({ id:crypto.randomUUID(), organizationId: context.organization.id, actorId: context.user.id, action: `member.${status}`, entityType: "member", entityId: memberId, metadata:{} })
   })
   revalidatePath("/configuracoes")
 }
