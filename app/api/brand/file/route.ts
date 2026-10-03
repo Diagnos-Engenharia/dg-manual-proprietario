@@ -1,3 +1,4 @@
+import { logSafeError } from "@/lib/security/logging"
 import { get } from "@vercel/blob"
 import { NextResponse } from "next/server"
 import { requireDevelopmentAccess } from "@/lib/organization"
@@ -13,7 +14,7 @@ export async function GET(request: Request) {
     if (!result) return new NextResponse("Not found", { status: 404 })
     return new NextResponse(result.stream, { headers: { "Content-Type": result.blob.contentType ?? "application/octet-stream", ETag: result.blob.etag, "Cache-Control": "private, no-cache" } })
   }catch(error){
-    console.error("Brand file failed",error)
+    logSafeError("brand.file",error)
     return NextResponse.json({error:"Não foi possível abrir o arquivo"},{status:500})
   }
 }

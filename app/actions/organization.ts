@@ -5,7 +5,8 @@ import { and, count, eq, gt, inArray, isNull, or, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { db } from "@/lib/db"
 import { auditLogs, clientAccesses, developmentAssignments, developmentUnits, developments, members, organizations, organizationInvitations, user } from "@/lib/db/schema"
-import { isGlobalAdmin, recordAudit, requireActiveMembership, requireAuthenticatedUser, requireCompanyRole, requirePlatformManager, type DevelopmentRole } from "@/lib/organization"
+import { isGlobalAdmin, lockOrganization, recordAudit, requireActiveMembership, requireAuthenticatedUser, requireCompanyRole, requirePlatformManager, type DatabaseTransaction, type DevelopmentRole } from "@/lib/organization"
+import { cleanText } from "@/lib/security/input"
 
 const hashToken = (token: string) => createHash("sha256").update(token).digest("hex")
 
@@ -20,31 +21,47 @@ export async function listOrganizationMembers() {
   return roster.map(member => ({...member,assignments:grants.filter(grant=>grant.memberId===member.id).map(({developmentId,role})=>({developmentId,role}))}))
 }
 
-async function ensureNotLastAdmin(memberId: string, organizationId: string, nextRole?: string, nextStatus?: string) {
-  const target = await db.select({ role: members.role, status: members.status }).from(members).where(and(eq(members.id, memberId), eq(members.organizationId, organizationId))).limit(1)
+async function lockCompanyAdministration(tx:DatabaseTransaction,context:Awaited<ReturnType<typeof requireCompanyRole>>){
+  const company=await lockOrganization(tx,context.organization.id)
+  const actor=(await tx.select({role:members.role}).from(members).innerJoin(user,eq(members.userId,user.id)).where(and(
+    eq(members.id,context.member.id),eq(members.organizationId,context.organization.id),eq(members.userId,context.user.id),
+    eq(members.status,"active"),eq(user.accessStatus,"active"),eq(user.activeOrganizationId,context.organization.id),
+  )).limit(1))[0]
+  if(!actor || !isGlobalAdmin(actor.role))throw new Error("Você não possui acesso administrativo ativo a esta construtora")
+  return company
+}
+
+async function ensureNotLastAdmin(tx:DatabaseTransaction,memberId: string, organizationId: string, nextRole?: string, nextStatus?: string) {
+  const target = await tx.select({ role: members.role, status: members.status }).from(members).where(and(eq(members.id, memberId), eq(members.organizationId, organizationId))).limit(1)
   if (!target[0]) throw new Error("Usuário não encontrado")
   if (target[0].role === "owner" && (nextRole !== undefined || nextStatus === "suspended" || nextStatus === "removed")) throw new Error("O acesso legado do proprietário só pode ser alterado pelo Gerenciador")
   if (target[0].role === "admin" && target[0].status === "active" && (nextRole !== "admin" || nextStatus === "suspended" || nextStatus === "removed")) {
-    const admins = await db.select({ total: count() }).from(members).where(and(eq(members.organizationId, organizationId), or(eq(members.role, "admin"),eq(members.role,"owner")), eq(members.status, "active")))
+    const admins = await tx.select({ total: count() }).from(members).innerJoin(user,eq(members.userId,user.id)).where(and(eq(members.organizationId, organizationId), or(eq(members.role, "admin"),eq(members.role,"owner")), eq(members.status, "active"),eq(user.accessStatus,"active")))
     if (Number(admins[0]?.total ?? 0) <= 1) throw new Error("Não é possível remover, suspender ou rebaixar o último administrador ativo")
   }
 }
 
 export async function updateMemberRole(memberId: string, role: "editor") {
   const context = await requireCompanyRole(["admin"])
-  await ensureNotLastAdmin(memberId, context.organization.id, role, undefined)
-  await db.update(members).set({ role }).where(and(eq(members.id, memberId), eq(members.organizationId, context.organization.id)))
-  await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: "member.role_changed", entityType: "member", entityId: memberId, metadata: { role } })
+  if(role!=="editor")throw new Error("Perfil de acesso inválido")
+  await db.transaction(async tx=>{
+    await lockCompanyAdministration(tx,context)
+    await ensureNotLastAdmin(tx,memberId,context.organization.id,role,undefined)
+    await tx.update(members).set({role}).where(and(eq(members.id,memberId),eq(members.organizationId,context.organization.id)))
+    await recordAudit({organizationId:context.organization.id,actorId:context.user.id,action:"member.role_changed",entityType:"member",entityId:memberId,metadata:{role}},tx)
+  })
   revalidatePath("/configuracoes")
 }
 
 export async function updateMemberStatus(memberId: string, status: "active" | "suspended" | "removed") {
   const context = await requireCompanyRole(["admin"])
-  const target=await db.select({role:members.role,userId:members.userId}).from(members).where(and(eq(members.id,memberId),eq(members.organizationId,context.organization.id))).limit(1)
+  if(!["active","suspended","removed"].includes(status))throw new Error("Status de acesso inválido")
+  await db.transaction(async tx=>{
+  await lockCompanyAdministration(tx,context)
+  const target=await tx.select({role:members.role,userId:members.userId}).from(members).where(and(eq(members.id,memberId),eq(members.organizationId,context.organization.id))).limit(1)
   if(!target[0])throw new Error("Usuário não encontrado")
   if(isGlobalAdmin(target[0].role))throw new Error("Administradores são gerenciados pelo Gerenciador da plataforma")
-  await ensureNotLastAdmin(memberId, context.organization.id, undefined, status)
-  await db.transaction(async tx=>{
+  await ensureNotLastAdmin(tx,memberId, context.organization.id, undefined, status)
     await tx.update(members).set({ status }).where(and(eq(members.id, memberId), eq(members.organizationId, context.organization.id)))
     if(status!=="active")await tx.update(user).set({activeOrganizationId:null,updatedAt:new Date()}).where(and(eq(user.id,target[0].userId),eq(user.activeOrganizationId,context.organization.id)))
     await tx.insert(auditLogs).values({ id:crypto.randomUUID(), organizationId: context.organization.id, actorId: context.user.id, action: `member.${status}`, entityType: "member", entityId: memberId, metadata:{} })
@@ -57,44 +74,59 @@ export async function listOrganizationDevelopments() {
   return db.select({id:developments.id,name:developments.name}).from(developments).where(eq(developments.organizationId,context.organization.id))
 }
 
-export async function setDevelopmentAssignment(memberId:string,developmentId:string,role:Exclude<DevelopmentRole,"admin">|null) {
-  const context=await requireCompanyRole(["admin"])
-  const [person,development]=await Promise.all([
-    db.select().from(members).where(and(eq(members.id,memberId),eq(members.organizationId,context.organization.id))).limit(1),
-    db.select({id:developments.id}).from(developments).where(and(eq(developments.id,developmentId),eq(developments.organizationId,context.organization.id))).limit(1),
-  ])
+async function changeAssignment(tx:DatabaseTransaction,context:Awaited<ReturnType<typeof requireCompanyRole>>,memberId:string,developmentId:string,role:Exclude<DevelopmentRole,"admin">|null){
+  const person=await tx.select().from(members).where(and(eq(members.id,memberId),eq(members.organizationId,context.organization.id))).limit(1)
+  const development=await tx.select({id:developments.id}).from(developments).where(and(eq(developments.id,developmentId),eq(developments.organizationId,context.organization.id))).limit(1)
   if(!person[0]||!development[0])throw new Error("Usuário ou empreendimento não encontrado")
   if(isGlobalAdmin(person[0].role))throw new Error("O Administrador já possui acesso a todos os empreendimentos")
-  if(role && role!=="editor")throw new Error("Novos acessos de empreendimento devem utilizar o perfil Construtor")
-  await db.delete(developmentAssignments).where(and(eq(developmentAssignments.organizationId,context.organization.id),eq(developmentAssignments.memberId,memberId),eq(developmentAssignments.developmentId,developmentId)))
-  if(role)await db.insert(developmentAssignments).values({id:crypto.randomUUID(),organizationId:context.organization.id,memberId,developmentId,role})
-  await recordAudit({organizationId:context.organization.id,actorId:context.user.id,action:role?"development.access_granted":"development.access_revoked",entityType:"development",entityId:developmentId,metadata:{memberId,role}})
+  if(role!==null && role!=="editor")throw new Error("Novos acessos de empreendimento devem utilizar o perfil Construtor")
+  await tx.delete(developmentAssignments).where(and(eq(developmentAssignments.organizationId,context.organization.id),eq(developmentAssignments.memberId,memberId),eq(developmentAssignments.developmentId,developmentId)))
+  if(role)await tx.insert(developmentAssignments).values({id:crypto.randomUUID(),organizationId:context.organization.id,memberId,developmentId,role})
+  await recordAudit({organizationId:context.organization.id,actorId:context.user.id,action:role?"development.access_granted":"development.access_revoked",entityType:"development",entityId:developmentId,metadata:{memberId,role}},tx)
+}
+
+export async function setDevelopmentAssignment(memberId:string,developmentId:string,role:Exclude<DevelopmentRole,"admin">|null) {
+  const context=await requireCompanyRole(["admin"])
+  await db.transaction(async tx=>{
+    await lockCompanyAdministration(tx,context)
+    await changeAssignment(tx,context,memberId,developmentId,role)
+  })
   revalidatePath("/configuracoes");revalidatePath("/empreendimentos")
 }
 
 export async function createOrganizationInvitation(input:{email:string;name:string;developmentId:string;role?:string}) {
   const context=await requireCompanyRole(["admin"])
   const email=input.email.trim().toLowerCase()
-  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||!input.name.trim())throw new Error("Informe nome e e-mail válidos")
-  const owned=await db.select({id:developments.id}).from(developments).where(and(eq(developments.id,input.developmentId),eq(developments.organizationId,context.organization.id))).limit(1)
+  const name=cleanText(input.name,"Nome do usuário",160)
+  if(email.length>320||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new Error("Informe nome e e-mail válidos")
+  const result=await db.transaction(async tx=>{
+  await lockCompanyAdministration(tx,context)
+  const owned=await tx.select({id:developments.id}).from(developments).where(and(eq(developments.id,input.developmentId),eq(developments.organizationId,context.organization.id))).limit(1)
   if(!owned[0])throw new Error("Selecione um empreendimento válido")
-  const existing=await db.select({id:members.id,role:members.role}).from(members).innerJoin(user,eq(members.userId,user.id))
+  const existing=await tx.select({id:members.id,role:members.role}).from(members).innerJoin(user,eq(members.userId,user.id))
     .where(and(eq(members.organizationId,context.organization.id),eq(user.email,email))).limit(1)
   if(existing[0]) {
     if(isGlobalAdmin(existing[0].role))throw new Error("O usuário já é Administrador da construtora")
-    await setDevelopmentAssignment(existing[0].id,input.developmentId,"editor")
+    await changeAssignment(tx,context,existing[0].id,input.developmentId,"editor")
     return ""
   }
   const token=crypto.randomUUID()
-  await db.insert(organizationInvitations).values({id:crypto.randomUUID(),organizationId:context.organization.id,email,name:input.name.trim(),role:"editor",developmentIds:[input.developmentId],tokenHash:hashToken(token),expiresAt:new Date(Date.now()+7*24*60*60*1000),invitedBy:context.user.id})
-  await recordAudit({organizationId:context.organization.id,actorId:context.user.id,action:"invitation.created",entityType:"invitation",entityId:hashToken(token),metadata:{email,role:"editor",developmentIds:[input.developmentId]}})
+  await tx.insert(organizationInvitations).values({id:crypto.randomUUID(),organizationId:context.organization.id,email,name,role:"editor",developmentIds:[input.developmentId],tokenHash:hashToken(token),expiresAt:new Date(Date.now()+7*24*60*60*1000),invitedBy:context.user.id})
+  await recordAudit({organizationId:context.organization.id,actorId:context.user.id,action:"invitation.created",entityType:"invitation",entityId:hashToken(token),metadata:{email,role:"editor",developmentIds:[input.developmentId]}},tx)
   return "/convite/"+token
+  })
+  revalidatePath("/configuracoes");revalidatePath("/empreendimentos")
+  return result
 }
 
 export async function cancelOrganizationInvitation(id: string) {
   const context = await requireCompanyRole(["admin"])
-  await db.update(organizationInvitations).set({ status: "canceled", canceledAt: new Date() }).where(and(eq(organizationInvitations.id, id), eq(organizationInvitations.organizationId, context.organization.id), eq(organizationInvitations.status, "pending")))
-  await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: "invitation.canceled", entityType: "invitation", entityId: id })
+  await db.transaction(async tx=>{
+    await lockCompanyAdministration(tx,context)
+    const changed=await tx.update(organizationInvitations).set({ status: "canceled", canceledAt: new Date() }).where(and(eq(organizationInvitations.id, id), eq(organizationInvitations.organizationId, context.organization.id), eq(organizationInvitations.status, "pending"))).returning({id:organizationInvitations.id})
+    if(!changed[0])throw new Error("Convite pendente não encontrado")
+    await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: "invitation.canceled", entityType: "invitation", entityId: id },tx)
+  })
   revalidatePath("/configuracoes")
 }
 
@@ -133,11 +165,11 @@ export async function acceptOrganizationInvitation(token: string) {
     const invite = rows[0]
     if (!invite || invite.expiresAt < new Date()) throw new Error("Convite inválido ou expirado")
     if (invite.email !== current.email.toLowerCase()) throw new Error("Este convite foi enviado para outro e-mail")
+    await lockOrganization(tx,invite.organizationId)
 
     if(invite.role === "client") {
       if(!invite.clientAccessId || !invite.unitId)throw new Error("Convite de cliente indisponível")
       // Same lock order as access changes and password resets.
-      await tx.execute(sql`select "id" from "organization" where "id" = ${invite.organizationId} for update`)
       const access=(await tx.select().from(clientAccesses).where(and(eq(clientAccesses.id,invite.clientAccessId),eq(clientAccesses.organizationId,invite.organizationId),eq(clientAccesses.unitId,invite.unitId),eq(clientAccesses.email,invite.email))).limit(1).for("update"))[0]
       if(!access || access.status !== "pending" || (access.userId && access.userId !== current.id))throw new Error("Convite de cliente indisponível. Solicite a reativação à construtora")
       const unit=(await tx.select({id:developmentUnits.id}).from(developmentUnits).where(and(eq(developmentUnits.id,access.unitId),eq(developmentUnits.developmentId,access.developmentId),eq(developmentUnits.organizationId,access.organizationId))).limit(1))[0]
@@ -209,19 +241,17 @@ export async function acceptOrganizationInvitation(token: string) {
       }
     }
 
-    return invite
-  })
-
-  if(accepted.role !== "client")await db.update(user).set({activeOrganizationId:accepted.organizationId,updatedAt:new Date()})
+    await tx.update(user).set({activeOrganizationId:invite.organizationId,updatedAt:new Date()})
     .where(and(eq(user.id,current.id),isNull(user.activeOrganizationId)))
-
-  if(accepted.role !== "client")await recordAudit({
-    organizationId: accepted.organizationId,
+    await recordAudit({
+    organizationId: invite.organizationId,
     actorId: current.id,
     action: "invitation.accepted",
     entityType: "invitation",
-    entityId: accepted.id,
-    metadata: { role: accepted.role },
+    entityId: invite.id,
+    metadata: { role: invite.role },
+    },tx)
+    return invite
   })
   revalidatePath("/configuracoes")
   revalidatePath("/gerenciador")
@@ -231,22 +261,27 @@ export async function acceptOrganizationInvitation(token: string) {
 }
 
 export async function createOrganization(input: { name: string; logo?: string; initials?: string; primaryColor?: string }) {
-  await requirePlatformManager()
-  const current = await requireAuthenticatedUser()
-  const name = input.name.trim()
-  if (!name) throw new Error("Informe o nome da construtora")
+  const {user:current}=await requirePlatformManager()
+  const name=cleanText(input.name,"Nome da construtora",160,2)
   const organizationId = crypto.randomUUID()
   const metadata = JSON.stringify({ initials: (input.initials?.trim() || name.slice(0, 2)).toUpperCase().slice(0, 4), primaryColor: input.primaryColor || "#2563eb" })
-  await db.insert(organizations).values({ id: organizationId, name, logo: input.logo?.trim() || null, slug: `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${organizationId.slice(0, 8)}`, metadata })
-  await db.update(developments).set({ organizationId }).where(and(eq(developments.userId, current.id), isNull(developments.organizationId)))
+  await db.transaction(async tx=>{
+    await tx.insert(organizations).values({ id: organizationId, name, logo: input.logo?.trim() || null, slug: `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${organizationId.slice(0, 8)}`, metadata })
+    await tx.update(developments).set({ organizationId }).where(and(eq(developments.userId, current.id), isNull(developments.organizationId)))
+    await recordAudit({organizationId,actorId:current.id,action:"manager.organization_created",entityType:"organization",entityId:organizationId,metadata:{name}},tx)
+  })
   revalidatePath("/gerenciador")
 }
 
 export async function updateOrganization(input: { name: string; logo?: string; initials?: string; primaryColor?: string }) {
   const context = await requireCompanyRole(["admin"])
-  const previous = context.organization.metadata ? JSON.parse(context.organization.metadata) as Record<string, unknown> : {}
-  const metadata = JSON.stringify({ ...previous, initials: (input.initials?.trim() || String(previous.initials || input.name.slice(0, 2))).toUpperCase().slice(0, 4), primaryColor: input.primaryColor || previous.primaryColor || "#2563eb" })
-  await db.update(organizations).set({ name: input.name.trim(), logo: input.logo?.trim() || null, metadata }).where(eq(organizations.id, context.organization.id))
-  await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: "organization.updated", entityType: "organization", entityId: context.organization.id })
+  const name=cleanText(input.name,"Nome da construtora",160,2)
+  await db.transaction(async tx=>{
+    const company=await lockCompanyAdministration(tx,context)
+    const previous=company.metadata?JSON.parse(company.metadata) as Record<string,unknown>:{}
+    const metadata = JSON.stringify({ ...previous, initials: (input.initials?.trim() || String(previous.initials || name.slice(0, 2))).toUpperCase().slice(0, 4), primaryColor: input.primaryColor || previous.primaryColor || "#2563eb" })
+    await tx.update(organizations).set({ name, logo: input.logo?.trim() || null, metadata }).where(eq(organizations.id, context.organization.id))
+    await recordAudit({ organizationId: context.organization.id, actorId: context.user.id, action: "organization.updated", entityType: "organization", entityId: context.organization.id },tx)
+  })
   revalidatePath("/perfil"); revalidatePath("/configuracoes")
 }

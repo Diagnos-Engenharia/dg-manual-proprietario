@@ -8,6 +8,7 @@ export type PlatformRole = "manager"
 export type CompanyRole = "admin" | "editor" | "validator"
 export type DevelopmentRole = CompanyRole | "admin_empreendimento"
 export type MemberStatus = "active" | "suspended" | "removed"
+export type DatabaseTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 const LAST_ACCESS_REFRESH_MS = 5 * 60 * 1000
 
@@ -56,10 +57,10 @@ export async function getOrganizationChoices(){
   const configured=profile[0]?.activeOrganizationId??null
   const validConfigured=configured&&rows.some(row=>row.organization.id===configured)?configured:null
   const activeOrganizationId=validConfigured??(rows.length===1?rows[0].organization.id:null)
-  if(configured&&!validConfigured){
-    await db.update(userTable).set({activeOrganizationId:null,updatedAt:new Date()}).where(eq(userTable.id,user.id))
-  }else if(activeOrganizationId!==configured&&rows.length===1){
-    await db.update(userTable).set({activeOrganizationId,updatedAt:new Date()}).where(eq(userTable.id,user.id))
+  if(activeOrganizationId!==configured){
+    await db.update(userTable).set({activeOrganizationId,updatedAt:new Date()}).where(and(
+      eq(userTable.id,user.id),configured?eq(userTable.activeOrganizationId,configured):isNull(userTable.activeOrganizationId),
+    ))
   }
   return {
     user,
@@ -76,13 +77,15 @@ export async function getOrganizationChoices(){
 
 export async function setActiveOrganization(organizationId:string){
   const user=await requireAuthenticatedUser()
-  const row=(await db.select({id:members.id}).from(members).where(and(
-    eq(members.userId,user.id),
-    eq(members.organizationId,organizationId),
-    eq(members.status,"active"),
-  )).limit(1))[0]
-  if(!row)throw new Error("Você não possui acesso ativo a esta construtora")
-  await db.update(userTable).set({activeOrganizationId:organizationId,updatedAt:new Date()}).where(eq(userTable.id,user.id))
+  await db.transaction(async tx=>{
+    await lockOrganization(tx,organizationId)
+    const profile=(await tx.select({accessStatus:userTable.accessStatus}).from(userTable).where(eq(userTable.id,user.id)).limit(1).for("update"))[0]
+    const row=(await tx.select({id:members.id}).from(members).where(and(
+      eq(members.userId,user.id),eq(members.organizationId,organizationId),eq(members.status,"active"),
+    )).limit(1))[0]
+    if(!row || profile?.accessStatus!=="active")throw new Error("Você não possui acesso ativo a esta construtora")
+    await tx.update(userTable).set({activeOrganizationId:organizationId,updatedAt:new Date()}).where(eq(userTable.id,user.id))
+  })
   return organizationId
 }
 
@@ -99,10 +102,14 @@ export async function getActiveMembership() {
     )).limit(1)
   if(!rows[0])return null
   const staleBefore=new Date(Date.now()-LAST_ACCESS_REFRESH_MS)
-  await db.update(members).set({lastAccessAt:new Date()}).where(and(
-    eq(members.id,rows[0].member.id),
-    or(isNull(members.lastAccessAt),lt(members.lastAccessAt,staleBefore)),
-  ))
+  if(!rows[0].member.lastAccessAt || rows[0].member.lastAccessAt < staleBefore){
+    // Avoid even issuing UPDATE for fresh requests; the predicate handles two
+    // stale requests racing to refresh the same timestamp.
+    await db.update(members).set({lastAccessAt:new Date()}).where(and(
+      eq(members.id,rows[0].member.id),
+      or(isNull(members.lastAccessAt),lt(members.lastAccessAt,staleBefore)),
+    ))
+  }
   return { user:choices.user, member:rows[0].member, organization:rows[0].organization }
 }
 
@@ -163,8 +170,14 @@ export async function canAccessDevelopment(developmentId:string) {
   try { await requireDevelopmentAccess(developmentId); return true }catch{return false}
 }
 
-export async function recordAudit(input:{organizationId:string;actorId:string;action:string;entityType:string;entityId:string;metadata?:Record<string,unknown>}){
-  await db.insert(auditLogs).values({id:crypto.randomUUID(),...input,metadata:input.metadata??{}})
+export async function recordAudit(input:{organizationId:string;actorId:string;action:string;entityType:string;entityId:string;metadata?:Record<string,unknown>},executor:Pick<typeof db,"insert">=db){
+  await executor.insert(auditLogs).values({id:crypto.randomUUID(),...input,metadata:input.metadata??{}})
+}
+
+export async function lockOrganization(tx:DatabaseTransaction,organizationId:string){
+  const company=(await tx.select().from(organizations).where(eq(organizations.id,organizationId)).limit(1).for("update"))[0]
+  if(!company)throw new Error("Construtora não encontrada")
+  return company
 }
 
 export function canEditContent(role:DevelopmentRole){return role==="admin"||role==="admin_empreendimento"||role==="editor"}

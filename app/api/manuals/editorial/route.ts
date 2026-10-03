@@ -7,6 +7,7 @@ import { editableManualSections } from "@/lib/manual-document/build"
 import { manualScope, selectManualCommissioning, type ManualContent } from "@/lib/manual-content"
 import { manualApiError } from "@/lib/manual-document/http"
 import { parseManualType } from "@/lib/manual-document/service"
+import { assertTechnicalHtml } from "@/lib/security/input"
 
 export const runtime = "nodejs"
 type JsonObject = Record<string, unknown>
@@ -98,7 +99,7 @@ export async function POST(request: Request) {
         if (action === "save") {
           if (typeof body.html !== "string" && body.warranties === undefined) throw new Error("Conteúdo inválido")
           if (typeof body.html === "string" && body.html.length > 500_000) throw new Error("Conteúdo excede o limite da seção")
-          editorial.sections[sectionId] = { ...editorial.sections[sectionId], ...(typeof body.html === "string" ? { html: body.html } : {}) }
+          editorial.sections[sectionId] = { ...editorial.sections[sectionId], ...(typeof body.html === "string" ? { html: assertTechnicalHtml(body.html) } : {}) }
           if (body.warranties !== undefined) {
             if (sectionId !== "garantias-tabela" || !Array.isArray(body.warranties) || body.warranties.length > 2000 || !body.warranties.every(row => row && typeof row === "object" && !Array.isArray(row) && Object.values(row).every(value => typeof value === "string" && value.length <= 10_000))) throw new Error("Tabela de garantias inválida")
             const mapping: Record<string, string> = { system: "sistema", element: "elemento", defect: "descricaoFalha", period: "prazo", conditions: "condicoes" }

@@ -1,33 +1,23 @@
 "use client"
 
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Download, Eye, FileText, History, ListFilter, Loader2, Maximize, Minus, PanelRight, Plus, RefreshCw } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { flattenSections, type ManualPage as ManualPageData, type ManualPreview, type ManualSection } from "@/lib/manual-document/types"
+import { type ManualPage as ManualPageData, type ManualPreview } from "@/lib/manual-document/types"
 import { editableManualSections } from "@/lib/manual-document/build"
 import { optionalManualSectionIds } from "@/lib/manual-content"
 import { cn } from "@/lib/utils"
 import { ManualPage } from "./manual-page"
 import { ContentStatusIcon, contentStatusLabels, DocumentNavigation } from "./document-navigation"
-import { SectionInspector, type EditorialAction, type EditorialData, type ManualInteractionMode } from "./section-inspector"
-import { manualFileUrl, VersionHistory, versionStatusLabels, type ManualVersion } from "./version-history"
-import type { FinishingUnitSummary, UnitCatalog } from "@/lib/finishing-types"
+import { SectionInspector, type ManualInteractionMode } from "./section-inspector"
+import { manualFileUrl, VersionHistory, versionStatusLabels } from "./version-history"
+import { useCompilerData, type DocumentType } from "./use-compiler-data"
+import { useDocumentViewport, pointToPixel, type ViewMode } from "./use-document-viewport"
 
-type DocumentType = "proprietario" | "sindico" | "acabamentos"
-type ViewMode = "continuous" | "single"
-type Compilation = { id: string; filename: string; revision: number; pages: number }
 const labels: Record<DocumentType, string> = { proprietario: "Manual do Proprietário", sindico: "Manual do Síndico", acabamentos: "Tabelas de acabamento" }
-const pointToPixel = 96 / 72
-
-async function readJson<T>(response: Response): Promise<T> {
-  let data: T & { error?: string }
-  try { data = await response.json() as T & { error?: string } } catch { throw new Error(response.status === 401 ? "Sua sessão expirou." : "O servidor não retornou uma resposta válida.") }
-  if (!response.ok) throw new Error(data.error ?? (response.status === 401 ? "Sua sessão expirou." : "Não foi possível concluir a solicitação."))
-  return data
-}
 
 export function PdfCompiler({ developmentId, role }: { developmentId?: string; role: "admin" | "editor" | "validator" }) {
   const router = useRouter()
@@ -35,178 +25,22 @@ export function PdfCompiler({ developmentId, role }: { developmentId?: string; r
   const requestedManual = searchParams.get("manual") === "acabamentos" ? "acabamentos" : searchParams.get("manual") === "sindico" ? "sindico" : "proprietario"
   const requestedUnit = searchParams.get("unidade")
   const requestedSection = searchParams.get("secao")
-  const [manual, setManual] = useState<DocumentType>(requestedManual)
-  const [unitId, setUnitId] = useState<string | null>(requestedUnit)
-  const [units, setUnits] = useState<FinishingUnitSummary[]>([])
-  const [unitsLoaded, setUnitsLoaded] = useState(false)
-  const [preview, setPreview] = useState<ManualPreview | null>(null)
-  const [editorial, setEditorial] = useState<EditorialData | null>(null)
-  const [versions, setVersions] = useState<ManualVersion[]>([])
-  const [loading, setLoading] = useState(false)
-  const [compiling, setCompiling] = useState(false)
-  const [actionBusy, setActionBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<Compilation | null>(null)
-  const [activeId, setActiveId] = useState("capa")
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
-  const [page, setPage] = useState(1)
-  const [zoom, setZoom] = useState(0.7)
-  const [viewMode, setViewMode] = useState<ViewMode>("single")
+  const [target, setTarget] = useState<{ manual: DocumentType; unitId: string | null }>({ manual: requestedManual, unitId: requestedUnit })
+  const { manual, unitId } = target
   const [interactionMode, setInteractionMode] = useState<ManualInteractionMode>("view")
-  const [historyOpen, setHistoryOpen] = useState(false)
-  const [pendingOpen, setPendingOpen] = useState(false)
-  const [inspectorOpen, setInspectorOpen] = useState(false)
-  const [optionalOpen, setOptionalOpen] = useState(false)
+  const [dialog, setDialog] = useState<"history" | "pending" | "inspector" | "optional" | null>(null)
   const [now, setNow] = useState(Date.now())
-  const viewportRef = useRef<HTMLDivElement>(null)
-  const pageRefs = useRef(new Map<number, HTMLDivElement>())
-  const positions = useRef<{ page: number; top: number; height: number }[]>([])
-  const zoomAnchor = useRef<{ page: number; fraction: number; offset: number } | null>(null)
-  const loadController = useRef<AbortController | null>(null)
-  const operationController = useRef<AbortController | null>(null)
-  const mutationScope = useRef<string | null>(null)
-  const loadSequence = useRef(0)
-  const operationSequence = useRef(0)
-  const scope = (developmentId ?? "") + ":" + manual + (manual === "acabamentos" ? ":" + (unitId ?? "") : "")
-  const currentScope = useRef(scope)
-  currentScope.current = scope
-
-  const load = useCallback(async () => {
-    if (!developmentId) return
-    const requestScope = developmentId + ":" + manual + (manual === "acabamentos" ? ":" + (unitId ?? "") : "")
-    const sequence = ++loadSequence.current
-    loadController.current?.abort()
-    const controller = new AbortController()
-    loadController.current = controller
-    setLoading(true); setError(null)
-    const body = JSON.stringify({ developmentId, manualType: manual, ...(manual === "acabamentos" ? { unitId } : {}) })
-    const query = "?" + new URLSearchParams({ developmentId, manualType: manual, ...(manual === "acabamentos" && unitId ? { unitId } : {}) })
-    const sourceRequest = manual === "acabamentos"
-      ? fetch("/api/finishing/units?" + new URLSearchParams({ developmentId }), { signal: controller.signal, cache: "no-store" }).then(response => readJson<UnitCatalog>(response))
-      : fetch("/api/manuals/editorial" + query, { signal: controller.signal }).then(response => readJson<EditorialData>(response))
-    if (manual === "acabamentos" && !unitId) {
-      try {
-        const catalog = await sourceRequest as UnitCatalog
-        if (!controller.signal.aborted && sequence === loadSequence.current && currentScope.current === requestScope) { setUnits(catalog.units); setUnitsLoaded(true) }
-      } catch (cause) {
-        if (!controller.signal.aborted && sequence === loadSequence.current && currentScope.current === requestScope) setError(cause instanceof Error ? cause.message : "Não foi possível carregar as unidades.")
-      } finally {
-        if (!controller.signal.aborted && sequence === loadSequence.current && currentScope.current === requestScope) setLoading(false)
-      }
-      return
-    }
-    const results = await Promise.allSettled([
-      fetch("/api/manuals/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: controller.signal }).then(response => readJson<ManualPreview>(response)),
-      fetch("/api/manuals/versions" + query, { signal: controller.signal }).then(response => readJson<{ versions: ManualVersion[] }>(response)),
-      sourceRequest,
-    ])
-    if (controller.signal.aborted || sequence !== loadSequence.current || currentScope.current !== requestScope) return
-    const [documentResult, versionsResult, editorialResult] = results
-    const failures: string[] = []
-    if (documentResult.status === "fulfilled") {
-      setPreview(documentResult.value)
-      setPage(current => Math.min(current, Math.max(1, documentResult.value.layout.pages.length)))
-      setActiveId(current => flattenSections(documentResult.value.document.sections).some(section => section.id === current) ? current : documentResult.value.document.sections[0]?.id ?? "capa")
-    } else failures.push(documentResult.reason instanceof Error ? documentResult.reason.message : "Não foi possível atualizar o preview.")
-    if (versionsResult.status === "fulfilled") setVersions(versionsResult.value.versions ?? [])
-    else failures.push("Não foi possível carregar o histórico de versões.")
-    if (editorialResult.status === "fulfilled") {
-      if (manual === "acabamentos") {
-        const catalog = editorialResult.value as UnitCatalog
-        setUnits(catalog.units); setUnitsLoaded(true)
-        setEditorial({ sections: {}, canEdit: catalog.canEdit, canValidate: catalog.canValidate })
-      } else setEditorial(editorialResult.value as EditorialData)
-    } else failures.push(manual === "acabamentos" ? "Não foi possível carregar as unidades." : "Não foi possível carregar os textos para edição e revisão.")
-    setError(failures.length ? failures.join(" ") : null)
-    setLoading(false)
-  }, [developmentId, manual, unitId])
-
-  useEffect(() => { setManual(requestedManual) }, [requestedManual])
-  useEffect(() => { setUnitId(requestedUnit) }, [requestedUnit])
-  useEffect(() => { setUnits([]); setUnitsLoaded(false) }, [developmentId])
-  useEffect(() => {
-    setPreview(null); setEditorial(null); setVersions([]); setSuccess(null); setError(null); setActiveId("capa"); setPage(1); setExpanded(new Set()); setCompiling(false); setActionBusy(false); setInteractionMode("view"); mutationScope.current = null
-    operationController.current?.abort(); operationSequence.current++; zoomAnchor.current = null
-    setHistoryOpen(false); setInspectorOpen(false); setPendingOpen(false); setOptionalOpen(false)
-    void load()
-    return () => { loadController.current?.abort(); operationController.current?.abort() }
-  }, [load])
+  const onCompiled = useCallback(() => setDialog("history"), [])
+  const { scope, preview, editorial, versions, units, unitsLoaded, loading, compiling, actionBusy, error, success, load, editorialAction, transition, compile, setError } = useCompilerData({ developmentId, manual, unitId, role, onCompiled })
+  const { activeId, expanded, page, zoom, viewMode, setViewMode, sectionById, pendingSections, activeSection, pageCount, visiblePages, viewportRef, pageRefs, navigate, toggleExpanded, changeZoom, fit, movePage } = useDocumentViewport(preview, scope, requestedSection)
+  useEffect(() => { setTarget({ manual: requestedManual, unitId: requestedUnit }) }, [requestedManual, requestedUnit])
+  useEffect(() => { setInteractionMode("view"); setDialog(null) }, [scope])
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 10000); return () => window.clearInterval(timer) }, [])
-  const sections = useMemo(() => preview ? flattenSections(preview.document.sections) : [], [preview])
-  const sectionById = useMemo(() => new Map(sections.map(section => [section.id, section])), [sections])
-  const pendingSections = useMemo(() => sections.filter(section => section.type !== "chapter" && section.type !== "cover" && section.type !== "toc" && section.validationStatus !== "aprovado" && section.validationStatus !== "nao_aplicavel"), [sections])
-  const activeSection = sectionById.get(activeId)
-  const pageCount = preview?.layout.pages.length ?? 0
-  const visiblePages = useMemo(() => {
-    const pages = preview?.layout.pages ?? []
-    if (viewMode === "single") return pages.filter(item => item.number === page)
-    return pages
-  }, [preview, viewMode, page])
-  const destinations = useMemo(() => Object.entries(preview?.layout.destinations ?? {}).map(([id, destination]) => ({ id, ...destination })).sort((a, b) => a.page - b.page || a.y - b.y), [preview])
-
-  const collectPositions = useCallback(() => {
-    const viewport = viewportRef.current
-    if (!viewport) return
-    const top = viewport.getBoundingClientRect().top
-    positions.current = Array.from(pageRefs.current.entries()).map(([number, element]) => { const box = element.getBoundingClientRect(); return { page: number, top: box.top - top + viewport.scrollTop, height: box.height } }).sort((a, b) => a.top - b.top)
-  }, [])
-  useLayoutEffect(() => {
-    collectPositions()
-    const viewport = viewportRef.current
-    if (!viewport) return
-    const anchor = zoomAnchor.current
-    if (anchor) {
-      const sheet = positions.current.find(candidate => candidate.page === anchor.page)
-      if (sheet) viewport.scrollTop = Math.max(0, sheet.top + sheet.height * anchor.fraction - anchor.offset)
-      zoomAnchor.current = null
-    }
-    const observer = new ResizeObserver(collectPositions)
-    observer.observe(viewport)
-    return () => observer.disconnect()
-  }, [collectPositions, visiblePages, zoom])
-  useEffect(() => {
-    const viewport = viewportRef.current
-    if (!viewport || !preview) return
-    let frame = 0
-    const syncScroll = () => {
-      if (frame) return
-      frame = requestAnimationFrame(() => {
-        frame = 0
-        const cursor = viewport.scrollTop + 40
-        const sheets = positions.current
-        let sheet = sheets[0]
-        for (const candidate of sheets) { if (candidate.top > cursor) break; sheet = candidate }
-        if (!sheet) return
-        const pageData = preview.layout.pages.find(item => item.number === sheet.page)
-        if (!pageData) return
-        const y = Math.max(0, cursor - sheet.top) * pageData.height / sheet.height
-        const onPage = destinations.filter(destination => destination.page === sheet.page)
-        let destination = onPage[0]
-        for (const candidate of onPage) { if (candidate.y > y + 12) break; destination = candidate }
-        setPage(sheet.page)
-        setActiveId(destination?.id ?? pageData.sectionId)
-      })
-    }
-    viewport.addEventListener("scroll", syncScroll, { passive: true })
-    return () => { viewport.removeEventListener("scroll", syncScroll); if (frame) cancelAnimationFrame(frame) }
-  }, [preview, destinations, viewMode])
-
-  const navigate = useCallback((id: string, matchingPage?: number) => {
-    if (!preview) return
-    const sectionDestination = preview.layout.destinations[id]
-    const destination = matchingPage ? { page: matchingPage, y: 0 } : sectionDestination
-    if (!destination) return
-    setActiveId(id); setPage(destination.page)
-    requestAnimationFrame(() => {
-      const viewport = viewportRef.current
-      const element = pageRefs.current.get(destination.page)
-      if (!viewport || !element) return
-      collectPositions()
-      const position = positions.current.find(item => item.page === destination.page)
-      const pageData = preview.layout.pages.find(item => item.number === destination.page)
-      if (position && pageData) viewport.scrollTo({ top: position.top + destination.y * position.height / pageData.height - 24, behavior: "auto" })
-    })
-  }, [preview, collectPositions])
+  const historyOpen = dialog === "history", pendingOpen = dialog === "pending", inspectorOpen = dialog === "inspector", optionalOpen = dialog === "optional"
+  const setHistoryOpen = (open: boolean) => setDialog(open ? "history" : null)
+  const setPendingOpen = (open: boolean) => setDialog(open ? "pending" : null)
+  const setInspectorOpen = (open: boolean) => setDialog(open ? "inspector" : null)
+  const setOptionalOpen = (open: boolean) => setDialog(open ? "optional" : null)
   const editSection = useCallback((id: string, commandHref?: string) => {
     const section = sectionById.get(id)
     const href = commandHref ?? section?.editHref
@@ -225,95 +59,6 @@ export function PdfCompiler({ developmentId, role }: { developmentId?: string; r
     setInspectorOpen(false)
     if (mode === "view") navigate(activeId)
   }, [activeId, navigate])
-  useEffect(() => { if (requestedSection && preview?.layout.destinations[requestedSection]) navigate(requestedSection) }, [requestedSection, preview?.fingerprint, navigate])
-  useEffect(() => {
-    if (!preview) return
-    const ancestors: string[] = []
-    function locate(tree: ManualSection[], path: string[]): boolean { for (const section of tree) { if (section.id === activeId) { ancestors.push(...path); return true } if (locate(section.children, [...path, section.id])) return true } return false }
-    locate(preview.document.sections, [])
-    if (ancestors.length) setExpanded(current => { if (ancestors.every(id => current.has(id))) return current; const next = new Set(current); ancestors.forEach(id => next.add(id)); return next })
-  }, [activeId, preview])
-  const toggleExpanded = useCallback((id: string) => setExpanded(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next }), [])
-
-  function changeZoom(next: number, wholePage = false) {
-    const value = Math.max(0.25, Math.min(2, next))
-    const viewport = viewportRef.current
-    if (viewport) {
-      collectPositions()
-      const offset = 24
-      const cursor = viewport.scrollTop + offset
-      let sheet = positions.current[0]
-      for (const candidate of positions.current) { if (candidate.top > cursor) break; sheet = candidate }
-      if (sheet) {
-        const fraction = wholePage ? 0 : Math.max(0, Math.min(1, (cursor - sheet.top) / sheet.height))
-        zoomAnchor.current = { page: sheet.page, fraction, offset }
-        if (value === zoom) { viewport.scrollTop = Math.max(0, sheet.top + sheet.height * fraction - offset); zoomAnchor.current = null }
-      }
-    }
-    setZoom(value)
-  }
-  function fit(kind: "page" | "width") {
-    const viewport = viewportRef.current
-    const first = preview?.layout.pages[0]
-    if (!viewport || !first) return
-    const width = (viewport.clientWidth - 28) / (first.width * pointToPixel)
-    const height = (viewport.clientHeight - 36) / (first.height * pointToPixel)
-    changeZoom(kind === "page" ? Math.min(width, height) : width, kind === "page")
-  }
-  useLayoutEffect(() => {
-    if (!preview) return
-    let frame = 0
-    const viewport = viewportRef.current
-    const apply = () => {
-      if (frame) cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(() => fit("page"))
-    }
-    apply()
-    if (!viewport) return () => { if (frame) cancelAnimationFrame(frame) }
-    const observer = new ResizeObserver(apply)
-    observer.observe(viewport)
-    return () => { if (frame) cancelAnimationFrame(frame); observer.disconnect() }
-  }, [preview?.fingerprint, viewMode])
-  function movePage(next: number) {
-    const number = Math.max(1, Math.min(pageCount, next))
-    setPage(number)
-    const pageData = preview?.layout.pages.find(item => item.number === number)
-    if (pageData) setActiveId(pageData.sectionId)
-    requestAnimationFrame(() => { const viewport = viewportRef.current; const element = pageRefs.current.get(number); if (viewport && element) { collectPositions(); const position = positions.current.find(item => item.page === number); if (position) viewport.scrollTo({ top: Math.max(0, position.top - 24), behavior: "auto" }) } })
-  }
-
-  async function scopedAction(url: string, body: Record<string, unknown>) {
-    const actionScope = scope
-    if (mutationScope.current === actionScope) throw new Error("Aguarde a conclusão da atualização em andamento.")
-    mutationScope.current = actionScope
-    const controller = new AbortController()
-    const sequence = ++operationSequence.current
-    operationController.current = controller
-    setActionBusy(true)
-    try {
-      await readJson(await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: controller.signal }))
-      if (currentScope.current === actionScope && sequence === operationSequence.current && !controller.signal.aborted) await load()
-    } finally { if (currentScope.current === actionScope && sequence === operationSequence.current) { mutationScope.current = null; setActionBusy(false) } }
-  }
-  async function editorialAction(action: EditorialAction) { await scopedAction("/api/manuals/editorial", { ...action, developmentId, manualType: manual }) }
-  async function transition(id: string, status: string) { await scopedAction("/api/manuals/versions/status", { id, status }) }
-  async function compile() {
-    if (!developmentId || !preview?.readiness.ok || loading || compiling || actionBusy || mutationScope.current === scope || role === "validator") return
-    const actionScope = scope
-    const controller = new AbortController()
-    const sequence = ++operationSequence.current
-    operationController.current = controller
-    mutationScope.current = actionScope
-    setCompiling(true); setError(null); setSuccess(null)
-    try {
-      const response = await fetch("/api/manuals/compile", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ developmentId, manualType: manual, ...(manual === "acabamentos" ? { unitId } : {}), previewFingerprint: preview.fingerprint }), signal: controller.signal })
-      const result = await readJson<Compilation>(response)
-      if (currentScope.current !== actionScope || sequence !== operationSequence.current || controller.signal.aborted) return
-      setSuccess(result); await load()
-      if (currentScope.current === actionScope && sequence === operationSequence.current && !controller.signal.aborted) { setInspectorOpen(false); setHistoryOpen(true) }
-    } catch (cause) { if (currentScope.current === actionScope && sequence === operationSequence.current && !controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Falha ao emitir o PDF.") } finally { if (currentScope.current === actionScope && sequence === operationSequence.current) { mutationScope.current = null; setCompiling(false) } }
-  }
-
   const ready = Boolean(preview?.readiness.ok)
   const overall = preview?.readiness.overall ?? 0
   const elapsed = preview ? Math.max(0, Math.floor((now - new Date(preview.updatedAt).getTime()) / 1000)) : 0
@@ -338,7 +83,7 @@ export function PdfCompiler({ developmentId, role }: { developmentId?: string; r
     return base + "&modulo=elaboracao&aba=" + (id === "acabamentos" ? "acabamentos" : id === "checklist" ? "checklist" : "textos&secao=sistemas" + (id === "manutencao" ? "&conteudo=manutencao" : ""))
   }
   function selectTarget(next: DocumentType, nextUnit: string | null = null) {
-    setManual(next); setUnitId(nextUnit)
+    setTarget({ manual: next, unitId: nextUnit })
     const params = new URLSearchParams(searchParams.toString())
     params.set("modulo", "emissao"); params.set("manual", next)
     for (const key of ["secao", "item", "conteudo", "grupo", "ambiente", "unidade"]) params.delete(key)

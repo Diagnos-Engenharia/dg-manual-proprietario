@@ -1,3 +1,4 @@
+import { logSafeError } from "@/lib/security/logging"
 import { get, put } from "@vercel/blob"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
@@ -31,7 +32,7 @@ export async function POST(request:Request){
   }catch(e){
     if(e instanceof RateLimitError)return NextResponse.json({error:e.message},{status:429,headers:{"Retry-After":String(e.retryAfterSeconds)}})
     if(e instanceof UploadValidationError)return NextResponse.json({error:e.message},{status:400})
-    console.error("Organization logo upload failed",e)
+    logSafeError("organization.logo",e)
     return NextResponse.json({error:"Falha no upload"},{status:500})
   }
 }

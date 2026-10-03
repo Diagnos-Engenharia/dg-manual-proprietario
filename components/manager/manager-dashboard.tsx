@@ -1,6 +1,7 @@
 "use client"
 
-import { useMemo,useState } from "react"
+import { useState } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Building2,LogOut,Plus,Search,Settings2 } from "lucide-react"
 import { createManagedOrganization } from "@/app/actions/manager"
@@ -15,18 +16,16 @@ type AiIntegration={provider:string;status:string;testedAt:string|null;updatedAt
 type Tab="companies"|"settings"
 type Feedback={tone:"success"|"error"|"info";message:string}|null
 
-export function ManagerDashboard({companies,aiIntegration,managerName,managerEmail}:{companies:ManagedCompany[];aiIntegration:AiIntegration;managerName:string;managerEmail:string}){
+type Pagination={page:number;pageSize:number;total:number;totalPages:number;search:string}
+
+export function ManagerDashboard({companies,pagination,aiIntegration,managerName,managerEmail}:{companies:ManagedCompany[];pagination:Pagination;aiIntegration:AiIntegration;managerName:string;managerEmail:string}){
   const router=useRouter()
   const [tab,setTab]=useState<Tab>("companies")
-  const [query,setQuery]=useState("")
   const [busy,setBusy]=useState(false)
   const [feedback,setFeedback]=useState<Feedback>(null)
   const [newCompany,setNewCompany]=useState("")
 
-  const filtered=useMemo(()=>companies.filter(company=>{
-    const haystack=[company.name,...company.members.flatMap(member=>[member.name,member.email])].join(" ").toLowerCase()
-    return haystack.includes(query.trim().toLowerCase())
-  }),[companies,query])
+  const pageHref=(page:number)=>"/gerenciador?"+new URLSearchParams({q:pagination.search,page:String(page)})
 
   function showFeedback(tone:"success"|"error"|"info",message:string){setFeedback({tone,message})}
 
@@ -35,7 +34,7 @@ export function ManagerDashboard({companies,aiIntegration,managerName,managerEma
     try{
       const result=await createManagedOrganization({name:newCompany})
       setFeedback({tone:result.ok?"success":"error",message:result.message})
-      if(result.ok){setNewCompany("");router.refresh()}
+      if(result.ok){setNewCompany("");router.push("/gerenciador?"+new URLSearchParams({q:newCompany.trim()}))}
     }catch(error){setFeedback({tone:"error",message:error instanceof Error?error.message:"Não foi possível cadastrar a construtora."})}
     finally{setBusy(false)}
   }
@@ -68,10 +67,12 @@ export function ManagerDashboard({companies,aiIntegration,managerName,managerEma
 
       {tab==="companies"&&<div className="space-y-5">
         <div className="grid gap-4 lg:grid-cols-[1fr_auto]">
-          <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"/><Input value={query} onChange={event=>setQuery(event.target.value)} placeholder="Pesquisar construtora, usuário ou e-mail" className="pl-9"/></div>
-          <div className="flex gap-2"><Input value={newCompany} onChange={event=>setNewCompany(event.target.value)} placeholder="Nova construtora" className="min-w-64"/><Button disabled={busy||newCompany.trim().length<2} onClick={()=>void addCompany()}><Plus className="h-4 w-4"/>Cadastrar construtora</Button></div>
+          <form action="/gerenciador" method="get" className="flex min-w-0 gap-2"><div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"/><Input key={pagination.search} name="q" defaultValue={pagination.search} maxLength={120} aria-label="Pesquisar construtora, usuário ou e-mail" placeholder="Pesquisar construtora, usuário ou e-mail" className="pl-9"/></div><Button type="submit" variant="outline">Pesquisar</Button></form>
+          <div className="flex flex-wrap gap-2"><Input value={newCompany} onChange={event=>setNewCompany(event.target.value)} placeholder="Nova construtora" className="min-w-0 flex-1 lg:min-w-64"/><Button disabled={busy||newCompany.trim().length<2} onClick={()=>void addCompany()}><Plus className="h-4 w-4"/>Cadastrar construtora</Button></div>
         </div>
-        <div className="grid gap-4 xl:grid-cols-2">{filtered.map(company=><ManagerCompanyCard key={company.id} company={company} onFeedback={showFeedback}/>)}</div>
+        <div className="flex flex-wrap items-center justify-between gap-3 text-sm"><p className="text-muted-foreground">{pagination.total} construtora{pagination.total===1?"":"s"} · Página {pagination.page} de {pagination.totalPages}</p><nav aria-label="Paginação de construtoras" className="flex gap-2">{pagination.page>1&&<Button variant="outline" size="sm" render={<Link href={pageHref(pagination.page-1)}/>}>Anterior</Button>}{pagination.page<pagination.totalPages&&<Button variant="outline" size="sm" render={<Link href={pageHref(pagination.page+1)}/>}>Próxima</Button>}</nav></div>
+        {companies.length===0&&<p role="status" className="rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">Nenhuma construtora encontrada.</p>}
+        <div className="grid gap-4 xl:grid-cols-2">{companies.map(company=><ManagerCompanyCard key={company.id} company={company} onFeedback={showFeedback}/>)}</div>
       </div>}
 
       {tab==="settings"&&<ManagerSettings managerName={managerName} managerEmail={managerEmail} aiIntegration={aiIntegration} onFeedback={showFeedback}/>}

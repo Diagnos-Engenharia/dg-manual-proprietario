@@ -111,9 +111,11 @@ export async function setClientAccessStatus(input: { id: string; enabled: boolea
   } catch (error) { return failure(error) }
 }
 
-export async function setAllClientsAccessStatus(input: { enabled: boolean }): Promise<ClientActionResult> {
+export async function setAllClientsAccessStatus(input: { enabled: boolean; organizationId: string }): Promise<ClientActionResult> {
   try {
     const context = await requireCompanyRole(["admin"])
+    const organizationId = assertId(input.organizationId, "Construtora")
+    if (organizationId !== context.organization.id) throw new ClientAccessError(409, "A construtora ativa mudou. Atualize a página antes de alterar os acessos.")
     if (typeof input.enabled !== "boolean") throw new InputValidationError("Informe o estado do acesso.")
     await consumeRateLimit("client-access-all:" + context.user.id, { max: 20, windowSeconds: 3600 })
     await db.transaction(async tx => {

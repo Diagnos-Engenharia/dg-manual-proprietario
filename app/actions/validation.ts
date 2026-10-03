@@ -7,8 +7,9 @@ import {
   developmentContentValidations,
   developmentReviews,
   developments,
+  auditLogs,
 } from "@/lib/db/schema"
-import { canEditContent,canValidateContent,recordAudit,requireDevelopmentAccess } from "@/lib/organization"
+import { canEditContent,canValidateContent,requireDevelopmentAccess } from "@/lib/organization"
 import { mutateTechnicalSystem, TechnicalContentError } from "@/lib/manual-document/technical-service"
 import type { ManualType } from "@/lib/mock-data"
 
@@ -22,10 +23,16 @@ async function transition(id:string,next:ValidationStatus,comment?:string){
   if(["rascunho","em_elaboracao","aguardando_validacao","reenviado","arquivado"].includes(next)&&!canEditContent(role))throw new Error("Somente Administradores e Construtores podem alterar o conteúdo")
   if(["ajustes_solicitados","aprovado","publicado"].includes(next)&&!canValidateContent(role))throw new Error("Somente Administradores podem validar")
   if(next==="aprovado"&&context.development.lastEditorId===context.user.id)throw new Error("Quem editou por último não pode aprovar o próprio conteúdo")
-  const version=context.development.version
-  await db.update(developments).set({workflowStatus:next,...(next==="aprovado"?{approvedVersion:version,approvedBy:context.user.id,approvedAt:new Date()}:{}),updatedAt:new Date()}).where(and(eq(developments.id,id),eq(developments.organizationId,context.organization.id)))
-  await db.insert(developmentReviews).values({id:crypto.randomUUID(),developmentId:id,organizationId:context.organization.id,version,status:next,editorId:context.development.lastEditorId??context.user.id,validatorId:["aprovado","publicado"].includes(next)?context.user.id:null,comment:comment?.trim()||null})
-  await recordAudit({organizationId:context.organization.id,actorId:context.user.id,action:"development."+next,entityType:"development",entityId:id,metadata:{version,comment}})
+  await db.transaction(async tx => {
+    const current=(await tx.select().from(developments).where(and(eq(developments.id,id),eq(developments.organizationId,context.organization.id))).for("update"))[0]
+    if(!current)throw new Error("Empreendimento não encontrado")
+    if(current.version!==context.development.version)throw new Error("Atualize a página: o conteúdo mudou durante a validação")
+    if(next==="aprovado"&&current.lastEditorId===context.user.id)throw new Error("Quem editou por último não pode aprovar o próprio conteúdo")
+    const version=current.version
+    await tx.update(developments).set({workflowStatus:next,...(next==="aprovado"?{approvedVersion:version,approvedBy:context.user.id,approvedAt:new Date()}:{}),updatedAt:new Date()}).where(and(eq(developments.id,id),eq(developments.organizationId,context.organization.id)))
+    await tx.insert(developmentReviews).values({id:crypto.randomUUID(),developmentId:id,organizationId:context.organization.id,version,status:next,editorId:current.lastEditorId??context.user.id,validatorId:["aprovado","publicado"].includes(next)?context.user.id:null,comment:comment?.trim()||null})
+    await tx.insert(auditLogs).values({id:crypto.randomUUID(),organizationId:context.organization.id,actorId:context.user.id,action:"development."+next,entityType:"development",entityId:id,metadata:{version,comment:comment?.trim()||null}})
+  })
   revalidatePath("/empreendimentos/"+id)
 }
 

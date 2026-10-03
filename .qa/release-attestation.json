@@ -1,0 +1,199 @@
+{
+  "schemaVersion": 1,
+  "status": "passed",
+  "startedAt": "2026-10-03T18:21:56.699Z",
+  "stages": [
+    {
+      "name": "security",
+      "status": "passed",
+      "durationMs": 374
+    },
+    {
+      "name": "security-runtime",
+      "status": "passed",
+      "durationMs": 366
+    },
+    {
+      "name": "route-audit-regressions",
+      "status": "passed",
+      "durationMs": 329
+    },
+    {
+      "name": "domain",
+      "status": "passed",
+      "durationMs": 5780
+    },
+    {
+      "name": "qa-contract",
+      "status": "passed",
+      "durationMs": 476
+    },
+    {
+      "name": "csp",
+      "status": "passed",
+      "durationMs": 527
+    },
+    {
+      "name": "migrations",
+      "status": "passed",
+      "durationMs": 338
+    },
+    {
+      "name": "database-preflight",
+      "status": "passed"
+    },
+    {
+      "name": "clients-runtime",
+      "status": "passed",
+      "durationMs": 2208
+    },
+    {
+      "name": "organization-runtime",
+      "status": "passed",
+      "durationMs": 1150
+    },
+    {
+      "name": "audit-runtime",
+      "status": "passed",
+      "durationMs": 909
+    },
+    {
+      "name": "bootstrap-policy",
+      "status": "passed",
+      "durationMs": 59
+    },
+    {
+      "name": "build",
+      "status": "passed",
+      "durationMs": 18397
+    },
+    {
+      "name": "browser",
+      "status": "passed",
+      "durationMs": 45901
+    }
+  ],
+  "matrices": [
+    {
+      "suite": "internal",
+      "browser": "Chromium",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 768,
+          "height": 1024
+        },
+        {
+          "name": "desktop",
+          "width": 1600,
+          "height": 1100
+        }
+      ],
+      "results": [
+        {
+          "viewport": "mobile",
+          "passed": [
+            "login with deep-link resume",
+            "PDF preview and zoom",
+            "history dialog and keyboard escape",
+            "sidebar order/navigation",
+            "Databook development selection and folder dialog cancel",
+            "document and dialog horizontal containment"
+          ]
+        },
+        {
+          "viewport": "tablet",
+          "passed": [
+            "login with deep-link resume",
+            "PDF preview and zoom",
+            "history dialog and keyboard escape",
+            "sidebar order/navigation",
+            "Databook development selection and folder dialog cancel",
+            "document and dialog horizontal containment"
+          ]
+        },
+        {
+          "viewport": "desktop",
+          "passed": [
+            "login with deep-link resume",
+            "PDF preview and zoom",
+            "history dialog and keyboard escape",
+            "sidebar order/navigation",
+            "Databook development selection and folder dialog cancel",
+            "document and dialog horizontal containment"
+          ]
+        }
+      ],
+      "limitation": "Viewport and touch emulation are not a physical-device or Safari/Firefox certification."
+    },
+    {
+      "suite": "clients",
+      "browser": "Chromium",
+      "viewports": [
+        {
+          "name": "mobile",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "name": "tablet",
+          "width": 768,
+          "height": 1024
+        },
+        {
+          "name": "desktop",
+          "width": 1600,
+          "height": 1100
+        }
+      ],
+      "results": [
+        {
+          "viewport": "mobile",
+          "passed": [
+            "users development filter and search",
+            "per-user access menu, confirmation and cancel",
+            "private-PDF navigation in new tab and authorized real bytes",
+            "manual question and unavailable-provider feedback",
+            "document and dialog horizontal containment"
+          ]
+        },
+        {
+          "viewport": "tablet",
+          "passed": [
+            "users development filter and search",
+            "per-user access menu, confirmation and cancel",
+            "private-PDF navigation in new tab and authorized real bytes",
+            "manual question and unavailable-provider feedback",
+            "document and dialog horizontal containment"
+          ]
+        },
+        {
+          "viewport": "desktop",
+          "passed": [
+            "users development filter and search",
+            "per-user access menu, confirmation and cancel",
+            "private-PDF navigation in new tab and authorized real bytes",
+            "manual question and unavailable-provider feedback",
+            "document and dialog horizontal containment"
+          ]
+        }
+      ],
+      "limitation": "Viewport and touch emulation are not a physical-device or Safari/Firefox certification."
+    }
+  ],
+  "limitations": [
+    "OpenAI semantics use mocked responses; no live provider request",
+    "Private files use the isolated local adapter; live Vercel Blob transport is not certified",
+    "Chromium viewport/touch emulation; physical devices, Safari and Firefox not certified",
+    "Protected hosted preview still requires its separate review"
+  ],
+  "observedHead": "f91a1761fc7a2764ed30b9e21ee54f36c1c7e19a",
+  "workingTreeDirty": true,
+  "fingerprint": "c7045e13a692ebecfffa397e148e9962f03039fef532cbdee5488f46db3e02cd",
+  "completedAt": "2026-10-03T18:23:13.727Z"
+}

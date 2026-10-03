@@ -54,6 +54,15 @@ async function runTechnicalApiTests({ admin, reviewer, editor, anonymous, outsid
     await post(editor, { ...getSystem(beforeUnit, 'approved::unidade'), key: 'not-selected::unidade' }, 'sistemas', 'save', { html: '<p>NOT_SELECTED</p>' }, 400)
     await post(editor, getSystem(beforeUnit, 'approved::unidade'), 'sistemas', 'save', { html: '<p>MISSING_REVISION</p>', expectedFingerprint: undefined }, 400)
 
+    // Send raw payloads directly, bypassing all client-side editor sanitization.
+    for (const html of ['<p onpointerenter="alert(1)">UNSAFE</p>', '<a href="jav&#x61;script:alert(1)">UNSAFE</a>', '<iframe srcdoc="UNSAFE"></iframe>']) {
+      await post(editor, getSystem(beforeUnit, 'approved::unidade'), 'sistemas', 'save', { html }, 400)
+      const editorialResponse = await editor.post('/api/manuals/editorial', { data: { developmentId: dev, manualType: 'proprietario', action: 'save', sectionId: 'apresentacao', html } })
+      assert.equal(editorialResponse.status(), 400, await editorialResponse.text())
+    }
+    assert.deepEqual(await stored(), before, 'rejected HTML cannot alter technical or editorial data')
+    assert.deepEqual((await catalog()).systems, beforeUnit.systems, 'rejected content preserves approval and fingerprints')
+
     // Saving an unchanged approved source does not alter either approval or token.
     const approved = getSystem(beforeUnit, 'approved::unidade')
     assert.equal(approved.descriptionStatus, 'aprovado')
@@ -68,10 +77,11 @@ async function runTechnicalApiTests({ admin, reviewer, editor, anonymous, outsid
     // Different keys can be saved from the same snapshot without map replacement.
     const draft = getSystem(beforeUnit, 'draft::unidade'), rejected = getSystem(beforeUnit, 'rejected::unidade')
     const [first, second] = await Promise.all([
-      post(editor, draft, 'sistemas', 'save', { html: '<p>TECH_ATOMIC_DRAFT</p>' }),
+      post(editor, draft, 'sistemas', 'save', { html: '<p class="overlay" style="position:fixed">TECH_ATOMIC_DRAFT</p>' }),
       post(reviewer, rejected, 'sistemas', 'save', { html: '<p>TECH_ATOMIC_REJECTED</p>' }),
     ])
     let data = await stored()
+    assert.equal(first.html, '<p>TECH_ATOMIC_DRAFT</p>', 'server persists normalized safe HTML, not the supplied attributes')
     assert.equal(data.manuals.proprietario.sistemas[draft.key], first.html)
     assert.equal(data.manuals.proprietario.sistemas[rejected.key], second.html)
     assert.equal(data.manuals.proprietario.sistemas[approved.key], approved.html)
@@ -172,7 +182,7 @@ async function runTechnicalApiTests({ admin, reviewer, editor, anonymous, outsid
   }
   assert.deepEqual((await catalog()).systems, beforeUnit.systems)
   assert.deepEqual((await catalog('sindico')).systems, beforeCommon.systems)
-  console.log('MANUAL_TECHNICAL_API_PASS: auth/tenant/scope, atomic saves, stale conflicts, independent approvals, review locks, empty maintenance, preview colors, source restoration')
+  console.log('MANUAL_TECHNICAL_API_PASS: auth/tenant/scope, raw HTML rejection and normalization, atomic saves, stale conflicts, independent approvals, review locks, empty maintenance, preview colors, source restoration')
 }
 
 module.exports = { runTechnicalApiTests }

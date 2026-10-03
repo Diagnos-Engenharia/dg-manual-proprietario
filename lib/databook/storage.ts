@@ -36,11 +36,12 @@ export async function headDatabookFile(pathname: string) {
   return { pathname: result.pathname, size: result.size, private: new URL(result.url).hostname.endsWith(".private.blob.vercel-storage.com") }
 }
 export async function readDatabookFileHead(pathname:string,length=8192){
+  if (!Number.isSafeInteger(length) || length < 1 || length > 8192) throw new DatabookError("Limite de inspeção inválido.")
   const target=localPath(pathname)
   if(target){
     let handle
     try{
-      handle=await open(target,"r")
+      handle=await open(/* turbopackIgnore: true */ target,"r")
       const buffer=Buffer.alloc(length)
       const {bytesRead}=await handle.read(buffer,0,length,0)
       return new Uint8Array(buffer.subarray(0,bytesRead))
@@ -50,26 +51,32 @@ export async function readDatabookFileHead(pathname:string,length=8192){
     }finally{await handle?.close()}
   }
   requireDatabookStorage()
-  const result=await get(pathname,{access:"private"})
-  if(!result||result.statusCode!==200||!result.stream)throw new DatabookError("O arquivo ainda não foi recebido. Tente novamente.",409)
-  const reader=result.stream.getReader()
-  const chunks:Uint8Array[]=[]
-  let total=0
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 10_000)
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
   try{
+    const result=await get(pathname,{access:"private",useCache:false,abortSignal:controller.signal})
+    if(!result||result.statusCode!==200||!result.stream)throw new DatabookError("O arquivo ainda não foi recebido. Tente novamente.",409)
+    reader=result.stream.getReader()
+    const output = new Uint8Array(length)
+    let total=0
     while(total<length){
       const {done,value}=await reader.read()
       if(done)break
-      if(value){const chunk=value instanceof Uint8Array?value:new Uint8Array(value);chunks.push(chunk);total+=chunk.byteLength}
+      if(value){
+        const take = Math.min(value.byteLength, length - total)
+        output.set(value.subarray(0, take), total)
+        total += take
+      }
     }
-  }finally{await reader.cancel().catch(()=>{})}
-  const output=new Uint8Array(Math.min(total,length))
-  let offset=0
-  for(const chunk of chunks){
-    const take=Math.min(chunk.byteLength,output.length-offset)
-    output.set(chunk.subarray(0,take),offset);offset+=take
-    if(offset>=output.length)break
+    return output.subarray(0, total)
+  } catch (error) {
+    if (controller.signal.aborted) throw new DatabookError("Não foi possível inspecionar o arquivo a tempo. Tente novamente.", 503)
+    throw error
+  } finally {
+    clearTimeout(timeout)
+    await reader?.cancel().catch(()=>{})
   }
-  return output
 }
 
 export async function readDatabookFile(pathname: string, contentType: string, ifNoneMatch?: string | null) {

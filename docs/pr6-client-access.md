@@ -56,7 +56,7 @@ Junção física de anexos ao PDF e reordenação livre de blocos foram explicit
 
 ## Operação e limites
 
-A migração `0019_client_access.sql` é aditiva. Deve ser aplicada no banco do ambiente antes de usar o portal; executar `db:migrate` com a conexão desse ambiente, sem `DG_ALLOW_TEST_SEEDS`. A implementação não migra dados reais nem cadastra clientes de produção por si só. `0011_seed_test_users.sql` fica restrita a opt-in local; esta mudança não revoga automaticamente contas antigas já provisionadas em outros ambientes.
+As migrações `0019_client_access.sql`, `0020_organization_credentials_integrity.sql` e `0021_databook_object_cleanup_outbox.sql` são aditivas. Devem ser aplicadas no banco do ambiente antes de usar os novos fluxos; executar `db:migrate` com a conexão desse ambiente, sem `DG_ALLOW_TEST_SEEDS`. A implementação não migra dados reais nem cadastra clientes de produção por si só. `0011_seed_test_users.sql` fica restrita a opt-in local; esta mudança não revoga automaticamente contas antigas já provisionadas em outros ambientes.
 
 Os clientes precisam receber e aceitar um convite ligado à sua unidade; nenhum cadastro de morador é inventado ou importado automaticamente a partir da imagem. O botão de reset gera link para a construtora compartilhar; não houve envio real de e-mail. Contas internas/compartilhadas precisam de recuperação da identidade por um canal verificado separado; o Administrador de um tenant não recebe controle da senha global.
 
@@ -64,6 +64,6 @@ O chat depende da integração OpenAI verificada do Gerenciador e de um snapshot
 
 ## Validação e entrega
 
-`test:gate` executa os checks estáticos/runtime de entradas e o domínio antes do build; não equivale a teste completo de navegador. `test:clients-runtime` exige `DG_TEST_DATABASE_URL` local isolada e usa banco/transações/crypto reais, com sessão/headers do harness. `test:csp` usa Chromium com todas as chamadas externas interceptadas. `test:e2e` exige aplicação local e banco isolado; `test:local` inicia temporariamente a aplicação em localhost:3000, roda as duas suites e encerra seu próprio servidor.
+`test:gate` executa os checks estáticos/runtime de entradas e o domínio antes do build. O build comum também exige o atestado da rodada `test:release`, correspondente ao código atual. `test:clients-runtime` exige `DG_TEST_DATABASE_URL` local isolada e usa banco/transações/crypto reais, com sessão/headers do harness. `test:csp` usa Chromium com todas as chamadas externas interceptadas. `test:e2e` exige aplicação local e banco isolado; `test:local` inicia temporariamente a aplicação em localhost:3000, roda as duas suites e encerra seu próprio servidor. A rodada release integra essas verificações e as matrizes de três tamanhos de tela; detalhes em `pr6-rf-checklist.md`.
 
 Resultados finais e snapshot de revisão ficam no relatório de revisão da PR. Gates de merge seguem `docs/dsi-dg-manual-gate.md`: Preview Ready do commit corrente, health/login/fluxos verificados e aprovação humana. Não confundir testes locais com Preview protegida nem um status Ready com teste funcional autenticado.

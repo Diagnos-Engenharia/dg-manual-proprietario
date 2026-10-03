@@ -1,12 +1,13 @@
 import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/lib/db"
-import { auditLogs, databookFiles, developments } from "@/lib/db/schema"
+import { auditLogs, databookFiles, databookObjectCleanup, developments } from "@/lib/db/schema"
 import { canEditContent, requireDevelopmentAccess } from "@/lib/organization"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
 import { databookNameKey, DATABOOK_GENERAL_FOLDER, normalizeDatabookName, resolveDatabookFolders, type DatabookCatalog, type DatabookFile, type DatabookFolder } from "./types"
 import { DatabookError, signUploadTicket, uploadPath, validateFileMetadata, verifyUploadTicket, type UploadTicket } from "./ticket"
 import { hasLocalDatabookStorage, headDatabookFile, readDatabookFileHead, removeDatabookFile, requireDatabookStorage } from "./storage"
-import { assertDatabookContent } from "@/lib/security/uploads"
+import { assertDatabookContent, UploadValidationError } from "@/lib/security/uploads"
+import { logSafeError } from "@/lib/security/logging"
 
 type Context = Awaited<ReturnType<typeof requireDevelopmentAccess>>
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
@@ -46,6 +47,7 @@ function folderName(value: unknown) {
 
 export async function listDatabookCatalog(developmentId: unknown): Promise<DatabookCatalog> {
   const context = await databookAccess(developmentId)
+  await retryDatabookObjectCleanup(context.development.id)
   return db.transaction(async tx => {
     const development = (await tx.select({ data: developments.data }).from(developments).where(eq(developments.id, context.development.id)))[0]
     const files = await filesFor(tx, context.development.id)
@@ -130,6 +132,12 @@ export async function authorizeDatabookTicket(value: unknown, allowExpired = fal
   const ticket = verifyUploadTicket(value, Date.now(), allowExpired)
   const context = await databookAccess(ticket.developmentId, true)
   if (context.user.id !== ticket.userId || context.organization.id !== ticket.organizationId) throw new DatabookError("Esta autorização pertence a outro usuário.", 403)
+  const retired = (await db.select({ pathname: databookObjectCleanup.pathname }).from(databookObjectCleanup)
+    .where(and(eq(databookObjectCleanup.pathname, ticket.pathname), eq(databookObjectCleanup.developmentId, ticket.developmentId))))[0]
+  if (retired) {
+    await cleanupDatabookObject(ticket.pathname)
+    throw new DatabookError("A autorização deste envio já foi encerrada. Inicie um novo envio.", 409)
+  }
   const folders = resolveDatabookFolders(context.development.data, await db.select().from(databookFiles).where(eq(databookFiles.developmentId, ticket.developmentId)))
   if (!folders.some(folder => folder.id === ticket.folderId)) throw new DatabookError("A pasta de destino foi excluída. Selecione outra pasta.", 409)
   return { ticket, context }
@@ -142,19 +150,33 @@ export async function finalizeDatabookUpload(value: unknown) {
   if (ticket.expiresAt <= Date.now()) throw new DatabookError("A autorização de envio expirou. Tente novamente.", 409)
   const blob = await headDatabookFile(ticket.pathname)
   if (blob.pathname !== ticket.pathname || !blob.private || blob.size !== ticket.size) throw new DatabookError("O arquivo recebido não corresponde ao envio autorizado.", 409)
-  try { assertDatabookContent(ticket.name,ticket.contentType,await readDatabookFileHead(ticket.pathname)) }
-  catch(error){ throw new DatabookError(error instanceof Error?error.message:"O conteúdo real do arquivo não é permitido.",400) }
-  return db.transaction(async tx => {
+  const bytes = await readDatabookFileHead(ticket.pathname)
+  try { assertDatabookContent(ticket.name,ticket.contentType,bytes) }
+  catch(error){
+    if (!(error instanceof UploadValidationError)) throw error
+    // The immutable, unregistered object belongs to this signed ticket only.
+    try { await removeDatabookFile(ticket.pathname) } catch (cleanupError) { logSafeError("databook.rejected-upload.cleanup", cleanupError) }
+    throw new DatabookError(error.message,400)
+  }
+  const result = await db.transaction(async tx => {
     const development = await lockDevelopment(tx, context)
+    const retired = (await tx.select({ pathname: databookObjectCleanup.pathname }).from(databookObjectCleanup)
+      .where(and(eq(databookObjectCleanup.pathname, ticket.pathname), eq(databookObjectCleanup.developmentId, development.id))))[0]
+    if (retired) return { retired: true as const }
     const files = await filesFor(tx, development.id)
     const previous = files.find(item => item.id === ticket.id)
-    if (previous) return serializeDatabookFile(previous)
+    if (previous) return { file: serializeDatabookFile(previous) }
     const folder = resolveDatabookFolders(development.data, files).find(item => item.id === ticket.folderId)
     if (!folder) throw new DatabookError("A pasta de destino foi excluída. Selecione outra pasta.", 409)
     const [file] = await tx.insert(databookFiles).values({ id: ticket.id, userId: context.user.id, developmentId: development.id, folder: folder.name, name: ticket.name, pathname: ticket.pathname, contentType: ticket.contentType, sizeBytes: ticket.size }).returning()
     await audit(tx, context, "databook.uploaded", { path: ["databook", folder.name, ticket.name], before: null, after: { id: ticket.id, pathname: ticket.pathname, size: ticket.size } })
-    return serializeDatabookFile(file)
+    return { file: serializeDatabookFile(file) }
   })
+  if ("retired" in result) {
+    await cleanupDatabookObject(ticket.pathname)
+    throw new DatabookError("A autorização deste envio já foi encerrada. Inicie um novo envio.", 409)
+  }
+  return result.file
 }
 
 export async function findDatabookFile(pathname: unknown) {
@@ -192,7 +214,7 @@ export async function deleteDatabookFile(input: { developmentId?: unknown; id?: 
 // A folder deletion is one authorized operation. Per-file requests retain their
 // own quota; the private batch routine cannot be selected by HTTP input.
 async function deleteAuthorizedDatabookFile(context: Context, input: { id?: unknown; expectedName?: unknown; expectedFolder?: { id: unknown; name: unknown } }) {
-  return db.transaction(async tx => {
+  const pathname = await db.transaction(async tx => {
     const development = await lockDevelopment(tx, context)
     const file = (await tx.select().from(databookFiles).where(and(eq(databookFiles.id, String(input.id)), eq(databookFiles.developmentId, context.development.id))))[0]
     if (!file) throw new DatabookError("Arquivo não encontrado.", 404)
@@ -201,9 +223,36 @@ async function deleteAuthorizedDatabookFile(context: Context, input: { id?: unkn
       if (!folder || folder.name !== input.expectedFolder.name || file.folder !== input.expectedFolder.name) throw new DatabookError("A pasta foi alterada durante a exclusão. Os arquivos restantes foram preservados. Confira o destino antes de tentar novamente.", 409, "FOLDER_CHANGED")
     }
     if (input.expectedName !== undefined && file.name !== input.expectedName) throw new DatabookError("O arquivo foi alterado. Atualize a lista e tente novamente.", 409)
-    await removeDatabookFile(file.pathname)
+    await tx.insert(databookObjectCleanup).values({ pathname: file.pathname, developmentId: development.id })
     await tx.delete(databookFiles).where(eq(databookFiles.id, file.id))
     await audit(tx, context, "databook.deleted", { path: ["databook", file.folder, file.name], before: { id: file.id, pathname: file.pathname }, after: null })
-    return { success: true }
+    return file.pathname
   })
+  await cleanupDatabookObject(pathname)
+  return { success: true }
+}
+
+async function retryDatabookObjectCleanup(developmentId: string) {
+  await db.delete(databookObjectCleanup).where(and(
+    eq(databookObjectCleanup.developmentId, developmentId),
+    sql`${databookObjectCleanup.completedAt} IS NOT NULL AND ${databookObjectCleanup.requestedAt} < now() - interval '24 hours'`,
+  ))
+  const pending = await db.select({ pathname: databookObjectCleanup.pathname }).from(databookObjectCleanup)
+    .where(and(eq(databookObjectCleanup.developmentId, developmentId), sql`${databookObjectCleanup.completedAt} IS NULL`))
+    .orderBy(sql`COALESCE(${databookObjectCleanup.lastAttemptAt}, ${databookObjectCleanup.requestedAt})`, databookObjectCleanup.requestedAt)
+    .limit(5)
+  for (const item of pending) await cleanupDatabookObject(item.pathname)
+}
+
+async function cleanupDatabookObject(pathname: string) {
+  try {
+    await removeDatabookFile(pathname)
+    await db.update(databookObjectCleanup).set({ completedAt: new Date(), lastAttemptAt: new Date() })
+      .where(eq(databookObjectCleanup.pathname, pathname))
+  } catch (error) {
+    await db.update(databookObjectCleanup).set({ attempts: sql`${databookObjectCleanup.attempts} + 1`, lastAttemptAt: new Date(), completedAt: null })
+      .where(eq(databookObjectCleanup.pathname, pathname))
+      .catch(updateError => logSafeError("databook.delete.cleanup_attempt", updateError))
+    logSafeError("databook.delete.cleanup", error)
+  }
 }

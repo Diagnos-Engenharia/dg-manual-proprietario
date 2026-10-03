@@ -1,3 +1,4 @@
+import { logSafeError } from "@/lib/security/logging"
 import { NextResponse } from "next/server"
 import { and, desc, eq, isNull, sql } from "drizzle-orm"
 import { db } from "@/lib/db"
@@ -55,7 +56,7 @@ export async function POST(request: Request) {
       await tx.update(developments).set({ version: sql`${developments.version} + 1`, lastEditorId: context.user.id, updatedAt: new Date() }).where(and(eq(developments.id, developmentId), eq(developments.organizationId, context.organization.id)))
       await tx.insert(auditLogs).values({ id: crypto.randomUUID(), organizationId: context.organization.id, actorId: context.user.id, action: "manual.issued", entityType: "development", entityId: developmentId, metadata: { path: ["emissao", manualType, ...(unitId ? [unitId] : [])], fingerprint: preview.fingerprint, before: null, after: { filename, revision, pages }, unitId, finishingTable: finishing ? { id: finishing.id, revision: finishing.revision } : null } })
     }) } catch (error) {
-      try { await discardUnissuedManualFile(blob.pathname) } catch (cleanupError) { console.error("Falha ao descartar arquivo de emissão não registrada", cleanupError) }
+      try { await discardUnissuedManualFile(blob.pathname) } catch (cleanupError) { logSafeError("manual.discard", cleanupError) }
       throw error
     }
     return NextResponse.json({ id, filename, revision, sections, pages }, { status: 201 })

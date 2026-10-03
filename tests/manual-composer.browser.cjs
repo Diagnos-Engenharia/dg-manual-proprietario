@@ -247,6 +247,7 @@ const commands = preview => preview.layout.pages.flatMap(page => page.commands).
     await require('./databook-browser.cjs')({page,admin,editor,outsider,anonymous,dev,origin,directory})
     await require('./databook-folder-race.cjs')({admin,pool,dev})
     await require('./manual-public-contract.cjs')({admin,pool,dev})
+    await require('./manual-platform-browser.cjs')({browser,dev,origin,directory,adminEmail:'admin-'+suffix+'@example.test'})
     assert.deepEqual(errors,[])
     const ready = await preview('proprietario')
     await fs.writeFile(path.join(directory,'fixture.json'),JSON.stringify({developmentId:dev,organizationId:org,adminEmail:'admin-'+suffix+'@example.test',fingerprint:ready.fingerprint}))

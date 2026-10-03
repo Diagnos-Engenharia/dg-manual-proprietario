@@ -1,3 +1,5 @@
+import sanitizeHtml from "sanitize-html"
+
 export class InputValidationError extends Error{}
 
 export function assertId(value:string,label="Identificador",max=120){
@@ -45,14 +47,53 @@ export function assertJsonPayload(value:unknown,maxBytes=2_000_000){
   return value
 }
 
-const activeHtml=/<\s*(?:script|iframe|object|embed|svg)\b|javascript\s*:|data\s*:\s*text\/html|\son(?:error|load|click|mouseover|focus)\s*=/i
-export function assertSafeRichTextPayload(value:unknown){
+const technicalTags = ["p", "br", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "b", "em", "i", "u", "s", "strike", "ul", "ol", "li", "blockquote", "pre", "code", "hr", "a", "table", "thead", "tbody", "tfoot", "tr", "th", "td", "div", "span", "sub", "sup"]
+const activeTags = new Set(["script", "iframe", "object", "embed", "svg", "math", "style", "link", "meta", "base", "form", "input", "button", "textarea", "select", "video", "audio", "template"])
+
+/** Parse decoded attributes on the server; browser-side cleaning is only UX. */
+export function assertTechnicalHtml(html: string) {
+  if (html.length > 500_000) throw new InputValidationError("Conteúdo excede o limite da seção.")
+  let active = false
+  const clean = sanitizeHtml(html, {
+    allowedTags: technicalTags,
+    allowedAttributes: {
+      a: ["href", "title"], ol: ["start"],
+      th: ["colspan", "rowspan", "colwidth", "scope", "style"], td: ["colspan", "rowspan", "colwidth", "style"],
+      "*": ["style"],
+    },
+    allowedSchemes: ["http", "https", "mailto"], allowProtocolRelative: false,
+    allowedStyles: { "*": {
+      "text-align": [/^(?:left|right|center|justify)$/],
+      "font-weight": [/^(?:normal|bold|[1-9]00)$/], "font-style": [/^(?:normal|italic)$/],
+      "text-decoration": [/^(?:none|underline|line-through)$/],
+      "width": [/^\d+(?:\.\d+)?(?:px|%)$/],
+      "color": [/^#[\da-f]{3,8}$/i, /^(?:black|white|gray|red|blue|green)$/i],
+    } },
+    nestingLimit: 40,
+    onOpenTag(tag, attributes) {
+      if (activeTags.has(tag)) active = true
+      for (const [name, value] of Object.entries(attributes)) {
+        if (/^on/i.test(name) || name === "srcdoc") active = true
+        if (["href", "src", "cite", "action", "formaction", "xlink:href"].includes(name)) {
+          // htmlparser2 has already decoded numeric/named HTML entities.
+          const compact = value.replace(/[\s\u0000-\u0020\u007f]/g, "")
+          const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(compact)?.[1]?.toLowerCase()
+          if (compact.startsWith("//") || (scheme && !["http", "https", "mailto"].includes(scheme))) active = true
+        }
+      }
+    },
+  })
+  if (active) throw new InputValidationError("O conteúdo contém HTML ativo não permitido.")
+  return clean
+}
+
+export function assertSafeRichTextPayload<T>(value:T):T{
   assertJsonPayload(value)
-  const scan=(node:unknown)=>{
-    if(typeof node==="string"&&activeHtml.test(node))throw new InputValidationError("O conteúdo contém HTML ativo não permitido.")
-    if(Array.isArray(node)){for(const item of node)scan(item);return}
-    if(node&&typeof node==="object")for(const child of Object.values(node as Record<string,unknown>))scan(child)
+  const scan=(node:unknown):unknown=>{
+    if(typeof node==="string")return /<\s*\/?\s*[a-z!]/i.test(node) ? assertTechnicalHtml(node) : node
+    if(Array.isArray(node))return node.map(scan)
+    if(node&&typeof node==="object")return Object.fromEntries(Object.entries(node as Record<string,unknown>).map(([key,child])=>[key,scan(child)]))
+    return node
   }
-  scan(value)
-  return value
+  return scan(value) as T
 }

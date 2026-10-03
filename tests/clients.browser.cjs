@@ -121,6 +121,9 @@ async function search(page, value) { await page.getByRole('textbox', { name: 'Bu
     for (const context of [editorContext, clientContext]) { const html = await (await context.request.get(origin + '/usuarios')).text(); assert.ok(html.includes('exclusiva do Administrador')); assert.ok(!html.includes(users.client.email)) }
     const foreign = await (await outsiderContext.request.get(origin + '/usuarios')).text(); assert.ok(!foreign.includes(users.client.email))
   })
+  await check('mobile/tablet/desktop users, portal, PDF and manual-chat interactions remain usable', async () => {
+    await require('./clients-platform-browser.cjs')({ admin, client, directory, email: users.client.email, name: users.client.name, developmentId: dev })
+  })
   await check('individual disable persists and mixed bulk disable never re-enables the blocked client', async () => {
     await search(admin, users.client.email); await rowMenu(admin, users.client.name, 'Desabilitar acesso'); await admin.getByRole('dialog').getByRole('button', { name: 'Desabilitar', exact: true }).click()
     await poll({ sql: 'SELECT status FROM client_access WHERE id=$1', args: [accessId] }, rows => rows[0].status === 'disabled', 'individual disable'); await admin.reload(); await search(admin, users.client.email); await admin.getByText('Inativo', { exact: true }).waitFor()

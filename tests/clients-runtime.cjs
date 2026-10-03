@@ -150,13 +150,22 @@ async function main() {
   })
   await check("individual and bulk blocks affect only company client access", async () => {
     await login(id("adminA")); assert.equal((await actions.setClientAccessStatus({ id: id("otherAccess"), enabled: false })).ok, false)
-    assert.equal((await actions.setAllClientsAccessStatus({ enabled: false })).ok, true)
+    assert.equal((await actions.setAllClientsAccessStatus({ enabled: false, organizationId: id("orgA") })).ok, true)
     assert.equal((await readOne(schema.clientAccesses, id("otherAccess"))).status, "active")
     assert.equal((await readOne(schema.members, id("adminA_member"))).status, "active"); assert.equal((await readOne(schema.user, id("client"))).accessStatus, "active")
     await login(id("client")); assert.equal(await clients.hasClientIdentity(id("client")), true); await assert.rejects(clients.getClientPortalData(), error => error.status === 403)
     await assert.rejects(clients.requireClientManual({ accessId, manualId: id("owner") }), error => error.status === 404)
-    await login(id("adminA")); assert.equal((await actions.setAllClientsAccessStatus({ enabled: true })).ok, true)
+    await login(id("adminA")); assert.equal((await actions.setAllClientsAccessStatus({ enabled: true, organizationId: id("orgA") })).ok, true)
     assert.equal((await readOne(schema.clientAccesses, id("pendingAccess"))).status, "pending")
+  })
+  await check("bulk access refuses a stale organization from another browser tab", async () => {
+    await login(id("adminB"))
+    const result = await actions.setAllClientsAccessStatus({ enabled: false, organizationId: id("orgA") })
+    assert.equal(result.ok, false); assert.match(result.message, /construtora ativa mudou/)
+    assert.equal((await readOne(schema.clientAccesses, id("otherAccess"))).status, "active")
+    assert.equal((await readOne(schema.clientAccesses, accessId)).status, "active")
+    const records = await dbModule.db.select().from(schema.auditLogs).where(and(eq(schema.auditLogs.actorId,id("adminB")),eq(schema.auditLogs.action,"client.all_access_changed")))
+    assert.equal(records.length,0)
   })
   await check("password reset rejects staff identity and foreign/pending access", async () => {
     await login(id("adminA"))
@@ -220,7 +229,7 @@ async function main() {
     const names = new Set(rows.map(row => row.action)); for (const event of ["client.invited", "invitation.accepted", "client.access_changed", "client.all_access_changed", "client.password_reset_created", "client.password_reset_completed", "client.access_deleted"]) assert.ok(names.has(event), event)
     const serialized = JSON.stringify(rows); assert.equal(serialized.includes(invitationToken), false); assert.equal(serialized.includes("new-password-123"), false)
   })
-  console.log("Client runtime suite:", 11 - failures, "passed,", failures, "failed. Session/header context mocked; DB, authorization queries, transactions and hashing real.")
+  console.log("Client runtime suite:", 12 - failures, "passed,", failures, "failed. Session/header context mocked; DB, authorization queries, transactions and hashing real.")
   if (failures) process.exitCode = 1
 }
 main().catch(error => { console.error(error); process.exitCode = 1 }).finally(cleanup)

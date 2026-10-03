@@ -18,11 +18,11 @@ export default async function DatabookPage({ searchParams }: { searchParams: Pro
   if (requested && !selected) notFound()
   return <AppShell title="Databook"><div className="space-y-5">
     <form action="/databook" method="get" className="flex flex-wrap items-end gap-3">
-      <label className="grid gap-1.5 text-sm" htmlFor="databook-development">Empreendimento
+      <div className="grid gap-1.5 text-sm"><label htmlFor="databook-development">Empreendimento</label>
         <select id="databook-development" name="empreendimento" defaultValue={selected?.id} className="min-h-10 rounded-md border border-input bg-background px-3" disabled={!projects.length}>
           {projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
         </select>
-      </label>
+      </div>
       <button type="submit" disabled={!projects.length} className="min-h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50">Abrir arquivos</button>
     </form>
     {selected ? <Databook key={selected.id} developmentId={selected.id} /> : <p className="rounded-xl border p-6 text-sm text-muted-foreground">Nenhum empreendimento disponível para seu acesso.</p>}

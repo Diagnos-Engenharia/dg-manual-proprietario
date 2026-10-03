@@ -1,7 +1,7 @@
 "use server"
 
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:crypto"
-import { eq } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { db } from "@/lib/db"
 import { platformIntegrations } from "@/lib/db/schema"
@@ -32,7 +32,8 @@ function unseal(payload:string){
 }
 
 function failure(error:unknown,fallback:string):PlatformActionResult{
-  return {ok:false,message:error instanceof Error&&error.message?error.message:fallback}
+  const safe = error instanceof Error && /^(Não autenticado|Conta inativa|Você não tem permissão|Somente|Informe|A chave|Configure|Atualize|Modelo|Credencial|A integração)/.test(error.message)
+  return {ok:false,message:safe ? error.message : fallback}
 }
 
 export async function getPlatformAiIntegration(){
@@ -64,31 +65,35 @@ export async function savePlatformAiIntegration(input:{apiKey:string;model:strin
     const model=input.model.trim()
     if(!model||model.length>200)throw new Error("Informe um modelo OpenAI válido de até 200 caracteres")
     if(apiKey.length>8192)throw new Error("A chave da OpenAI excede o tamanho permitido")
-    const existing=(await db.select().from(platformIntegrations).where(eq(platformIntegrations.provider,"openai")).limit(1))[0]
-    if(!apiKey&&!existing)throw new Error("Informe a chave da API da OpenAI")
-    if(!apiKey&&existing?.provider!=="openai")throw new Error("Informe uma chave da OpenAI para substituir a integração atual")
-    const encryptedKey=apiKey?seal(apiKey):existing!.encryptedKey
-    if(existing){
-      await db.update(platformIntegrations).set({
-        provider:"openai",
-        encryptedKey,
-        config:{model},
-        status:"saved",
-        testedAt:null,
-        updatedBy:context.user.id,
-        updatedAt:new Date(),
-      }).where(eq(platformIntegrations.id,existing.id))
-    }else{
-      await db.insert(platformIntegrations).values({
-        id:crypto.randomUUID(),
-        provider:"openai",
-        encryptedKey,
-        config:{model},
-        status:"saved",
-        updatedBy:context.user.id,
-      })
-    }
-    await recordAudit({organizationId:"platform",actorId:context.user.id,action:"platform_ai.configured",entityType:"platform_integration",entityId:existing?.id??"openai",metadata:{provider:"openai",model}})
+    await db.transaction(async tx => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('dg_platform_ai'))`)
+      const existing=(await tx.select().from(platformIntegrations).where(eq(platformIntegrations.provider,"openai")).limit(1))[0]
+      if(!apiKey&&!existing)throw new Error("Informe a chave da API da OpenAI")
+      if(!apiKey&&existing?.provider!=="openai")throw new Error("Informe uma chave da OpenAI para substituir a integração atual")
+      const encryptedKey=apiKey?seal(apiKey):existing!.encryptedKey
+      const integrationId=existing?.id??crypto.randomUUID()
+      if(existing){
+        await tx.update(platformIntegrations).set({
+          provider:"openai",
+          encryptedKey,
+          config:{model},
+          status:"saved",
+          testedAt:null,
+          updatedBy:context.user.id,
+          updatedAt:new Date(),
+        }).where(eq(platformIntegrations.id,existing.id))
+      }else{
+        await tx.insert(platformIntegrations).values({
+          id:integrationId,
+          provider:"openai",
+          encryptedKey,
+          config:{model},
+          status:"saved",
+          updatedBy:context.user.id,
+        })
+      }
+      await recordAudit({organizationId:"platform",actorId:context.user.id,action:"platform_ai.configured",entityType:"platform_integration",entityId:integrationId,metadata:{provider:"openai",model}},tx)
+    })
     revalidatePath("/gerenciador")
     return {ok:true,message:"Configuração da OpenAI salva. Teste a conexão antes de usar o pré-cadastro."}
   }catch(error){return failure(error,"Não foi possível salvar a integração")}
@@ -111,14 +116,11 @@ export async function testPlatformAiIntegration():Promise<PlatformActionResult>{
       signal:AbortSignal.timeout(10000),
     })
     if(!response.ok){
-      const payload=await response.json().catch(()=>({})) as {error?:{message?:string}}
-      await db.update(platformIntegrations).set({status:"error",testedAt:new Date(),updatedAt:new Date()}).where(eq(platformIntegrations.id,row.id))
-      await recordAudit({organizationId:"platform",actorId:context.user.id,action:"platform_ai.test_failed",entityType:"platform_integration",entityId:row.id,metadata:{provider:"openai",model,status:response.status}})
+      await updatePlatformTestResult(row,"error",context.user.id,model,response.status)
       revalidatePath("/gerenciador")
-      return {ok:false,message:payload.error?.message||`A OpenAI respondeu HTTP ${response.status}. Verifique a chave e o modelo.`}
+      return {ok:false,message:`A OpenAI respondeu HTTP ${response.status}. Verifique a chave e o modelo.`}
     }
-    await db.update(platformIntegrations).set({status:"verified",testedAt:new Date(),updatedAt:new Date()}).where(eq(platformIntegrations.id,row.id))
-    await recordAudit({organizationId:"platform",actorId:context.user.id,action:"platform_ai.verified",entityType:"platform_integration",entityId:row.id,metadata:{provider:"openai",model}})
+    await updatePlatformTestResult(row,"verified",context.user.id,model,response.status)
     revalidatePath("/gerenciador")
     return {ok:true,message:`Conexão validada. A chave possui acesso ao modelo ${model}.`}
   }catch(error){return failure(error,"Não foi possível conectar à OpenAI")}
@@ -128,10 +130,21 @@ export async function removePlatformAiIntegration():Promise<PlatformActionResult
   try{
     const context=await requirePlatformManager()
     await consumeRateLimit("platform-ai-remove:"+context.user.id,{max:10,windowSeconds:3600})
-    const rows=await db.select({id:platformIntegrations.id,provider:platformIntegrations.provider,config:platformIntegrations.config}).from(platformIntegrations).where(eq(platformIntegrations.provider,"openai"))
-    await db.delete(platformIntegrations).where(eq(platformIntegrations.provider,"openai"))
-    for(const row of rows)await recordAudit({organizationId:"platform",actorId:context.user.id,action:"platform_ai.removed",entityType:"platform_integration",entityId:row.id,metadata:{provider:row.provider,model:(row.config as {model?:string})?.model??null}})
+    await db.transaction(async tx => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('dg_platform_ai'))`)
+      const rows=await tx.delete(platformIntegrations).where(eq(platformIntegrations.provider,"openai")).returning({id:platformIntegrations.id,provider:platformIntegrations.provider,config:platformIntegrations.config})
+      for(const row of rows)await recordAudit({organizationId:"platform",actorId:context.user.id,action:"platform_ai.removed",entityType:"platform_integration",entityId:row.id,metadata:{provider:row.provider,model:(row.config as {model?:string})?.model??null}},tx)
+    })
     revalidatePath("/gerenciador")
     return {ok:true,message:"Integração OpenAI removida."}
   }catch(error){return failure(error,"Não foi possível remover a integração")}
+}
+
+async function updatePlatformTestResult(row: typeof platformIntegrations.$inferSelect, status: "error" | "verified", actorId: string, model: string, httpStatus: number) {
+  await db.transaction(async tx => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('dg_platform_ai'))`)
+    const changed=await tx.update(platformIntegrations).set({status,testedAt:new Date(),updatedAt:new Date()}).where(and(eq(platformIntegrations.id,row.id),eq(platformIntegrations.encryptedKey,row.encryptedKey),sql`${platformIntegrations.config} = ${JSON.stringify(row.config)}::jsonb`)).returning({id:platformIntegrations.id})
+    if(!changed[0])throw new Error("Atualize a página: a configuração mudou durante o teste")
+    await recordAudit({organizationId:"platform",actorId,action:status==="verified"?"platform_ai.verified":"platform_ai.test_failed",entityType:"platform_integration",entityId:row.id,metadata:{provider:"openai",model,status:httpStatus}},tx)
+  })
 }

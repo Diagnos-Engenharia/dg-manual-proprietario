@@ -12,7 +12,7 @@ export default async function SelectOrganizationPage(){
   return <main className="flex min-h-screen items-center justify-center bg-background p-6">
     <section className="w-full max-w-2xl rounded-2xl border border-border bg-card p-7 shadow-sm">
       <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary"><Building2 className="h-5 w-5"/></div><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">DG Manual</p><h1 className="mt-1 text-2xl font-semibold">Selecione a construtora</h1></div></div>
-      <p className="mt-3 text-sm text-muted-foreground">Seu usuário possui acesso a mais de uma construtora. A seleção abaixo define explicitamente o tenant usado por Dashboard, Empreendimentos, Configurações e APIs internas.</p>
+      <p className="mt-3 text-sm text-muted-foreground">Escolha a construtora com a qual deseja trabalhar. Os empreendimentos e acessos exibidos serão os dessa construtora.</p>
       <div className="mt-6 grid gap-3">
         {context.organizations.map(item=><form key={item.id} action={chooseActiveOrganization}>
           <input type="hidden" name="organizationId" value={item.id}/>

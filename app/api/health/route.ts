@@ -1,3 +1,4 @@
+import { logSafeError } from "@/lib/security/logging"
 import { sql } from "drizzle-orm"
 import { NextResponse } from "next/server"
 import { db } from "@/lib/db"
@@ -14,7 +15,7 @@ export async function GET() {
       { headers: { "Cache-Control": "no-store" } },
     )
   } catch (error) {
-    console.error("health.database", error)
+    logSafeError("health.database", error)
     return NextResponse.json(
       { status: "degraded", checks: { database: "error" }, durationMs: Date.now() - started },
       { status: 503, headers: { "Cache-Control": "no-store" } },

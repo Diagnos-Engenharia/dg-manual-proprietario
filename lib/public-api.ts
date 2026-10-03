@@ -1,3 +1,4 @@
+import { logSafeError } from "@/lib/security/logging"
 import { createHash } from "node:crypto"
 import { eq } from "drizzle-orm"
 import { NextResponse } from "next/server"
@@ -68,7 +69,7 @@ export function publicOptions(request?:Request){
 export function publicApiFailure(error:unknown,request?:Request){
   if(error instanceof RateLimitError)return NextResponse.json({error:{code:"rate_limited",message:error.message}},{status:429,headers:{...publicCorsHeaders(request),"Cache-Control":"no-store","Retry-After":String(error.retryAfterSeconds)}})
   if(error instanceof PublicApiError)return publicJson({error:{code:error.code,message:error.message}},error.status,request)
-  console.error("Public API error",error)
+  logSafeError("public_api",error)
   return publicJson({error:{code:"internal_error",message:"Não foi possível processar a solicitação."}},500,request)
 }
 

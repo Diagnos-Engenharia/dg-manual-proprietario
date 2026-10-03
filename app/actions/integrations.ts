@@ -1,9 +1,9 @@
 "use server"
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:crypto"
-import { and, eq } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/lib/db"
-import { organizationIntegrations } from "@/lib/db/schema"
-import { recordAudit, requireCompanyRole } from "@/lib/organization"
+import { auditLogs, organizationIntegrations } from "@/lib/db/schema"
+import { requireCompanyRole } from "@/lib/organization"
 
 const providers = ["openai","google_ai","webhook","custom"] as const
 export type Provider = typeof providers[number]
@@ -36,20 +36,26 @@ export async function saveIntegration(input:{provider:Provider;apiKey:string;end
   const context=await requireCompanyRole(["admin"]);requireProvider(input.provider)
   const endpoint=(input.endpoint??"").trim()
   if(endpoint && (!/^https:\/\//.test(endpoint)||endpoint.length>500))throw new Error("Informe uma URL HTTPS válida de até 500 caracteres")
-  const existing=await db.select().from(organizationIntegrations).where(and(eq(organizationIntegrations.organizationId,context.organization.id),eq(organizationIntegrations.provider,input.provider))).limit(1)
   const apiKey=input.apiKey.trim()
-  if(!apiKey&&!existing[0])throw new Error("Informe a chave de integração")
   if(apiKey.length>8192)throw new Error("Chave excede o tamanho permitido")
-  const encryptedKey=apiKey?seal(apiKey):existing[0].encryptedKey
-  if(existing[0])await db.update(organizationIntegrations).set({encryptedKey,config:{endpoint},status:"saved",testedAt:null,updatedAt:new Date()}).where(eq(organizationIntegrations.id,existing[0].id))
-  else await db.insert(organizationIntegrations).values({id:crypto.randomUUID(),organizationId:context.organization.id,provider:input.provider,encryptedKey,config:{endpoint},status:"saved"})
-  await recordAudit({organizationId:context.organization.id,actorId:context.user.id,action:"integration.configured",entityType:"organization",entityId:context.organization.id,metadata:{provider:input.provider}})
+  await db.transaction(async tx => {
+    await tx.execute(sql`select id from organization where id = ${context.organization.id} for update`)
+    const existing=await tx.select().from(organizationIntegrations).where(and(eq(organizationIntegrations.organizationId,context.organization.id),eq(organizationIntegrations.provider,input.provider))).limit(1)
+    if(!apiKey&&!existing[0])throw new Error("Informe a chave de integração")
+    const encryptedKey=apiKey?seal(apiKey):existing[0].encryptedKey
+    if(existing[0])await tx.update(organizationIntegrations).set({encryptedKey,config:{endpoint},status:"saved",testedAt:null,updatedAt:new Date()}).where(eq(organizationIntegrations.id,existing[0].id))
+    else await tx.insert(organizationIntegrations).values({id:crypto.randomUUID(),organizationId:context.organization.id,provider:input.provider,encryptedKey,config:{endpoint},status:"saved"})
+    await tx.insert(auditLogs).values({id:crypto.randomUUID(),organizationId:context.organization.id,actorId:context.user.id,action:"integration.configured",entityType:"organization",entityId:context.organization.id,metadata:{provider:input.provider}})
+  })
   return {ok:true}
 }
 export async function deleteIntegration(provider:Provider){
   const context=await requireCompanyRole(["admin"]);requireProvider(provider)
-  await db.delete(organizationIntegrations).where(and(eq(organizationIntegrations.organizationId,context.organization.id),eq(organizationIntegrations.provider,provider)))
-  await recordAudit({organizationId:context.organization.id,actorId:context.user.id,action:"integration.deleted",entityType:"organization",entityId:context.organization.id,metadata:{provider}})
+  await db.transaction(async tx => {
+    await tx.execute(sql`select id from organization where id = ${context.organization.id} for update`)
+    await tx.delete(organizationIntegrations).where(and(eq(organizationIntegrations.organizationId,context.organization.id),eq(organizationIntegrations.provider,provider)))
+    await tx.insert(auditLogs).values({id:crypto.randomUUID(),organizationId:context.organization.id,actorId:context.user.id,action:"integration.deleted",entityType:"organization",entityId:context.organization.id,metadata:{provider}})
+  })
   return {ok:true}
 }
 export async function testIntegration(provider:Provider){
@@ -65,7 +71,11 @@ export async function testIntegration(provider:Provider){
     else headers.set("x-goog-api-key",key)
     const response=await fetch(target,{method:"GET",headers,signal:AbortSignal.timeout(8000),cache:"no-store"})
     const verified=response.ok
-    await db.update(organizationIntegrations).set({status:verified?"verified":"error",testedAt:new Date(),updatedAt:new Date()}).where(eq(organizationIntegrations.id,row[0].id))
+    await db.transaction(async tx => {
+      const changed=await tx.update(organizationIntegrations).set({status:verified?"verified":"error",testedAt:new Date(),updatedAt:new Date()}).where(and(eq(organizationIntegrations.id,row[0].id),eq(organizationIntegrations.encryptedKey,row[0].encryptedKey),sql`${organizationIntegrations.config} = ${JSON.stringify(row[0].config)}::jsonb`)).returning({id:organizationIntegrations.id})
+      if(!changed[0])throw new Error("Atualize a página: a configuração mudou durante o teste")
+      await tx.insert(auditLogs).values({id:crypto.randomUUID(),organizationId:context.organization.id,actorId:context.user.id,action:verified?"integration.verified":"integration.test_failed",entityType:"organization",entityId:context.organization.id,metadata:{provider,status:response.status}})
+    })
     return {ok:verified,message:verified?"Conexão validada.":response.status===401||response.status===403?"Chave inválida ou sem autorização.":"Não foi possível validar a conexão (HTTP "+response.status+")."}
   }catch {return {ok:false,message:"Não foi possível conectar ao provedor. Verifique a rede e tente novamente."}}
 }

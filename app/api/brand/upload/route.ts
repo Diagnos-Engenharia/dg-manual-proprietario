@@ -1,3 +1,4 @@
+import { logSafeError } from "@/lib/security/logging"
 import { put } from "@vercel/blob"
 import { NextResponse } from "next/server"
 import { requireDevelopmentRole } from "@/lib/organization"
@@ -19,7 +20,7 @@ export async function POST(request: Request) {
   }catch(error){
     if(error instanceof RateLimitError)return NextResponse.json({error:error.message},{status:429,headers:{"Retry-After":String(error.retryAfterSeconds)}})
     if(error instanceof UploadValidationError)return NextResponse.json({error:error.message},{status:400})
-    console.error("Brand upload failed",error)
+    logSafeError("brand.upload",error)
     return NextResponse.json({error:"Não foi possível enviar a imagem"},{status:500})
   }
 }

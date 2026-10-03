@@ -6,7 +6,7 @@ import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { isGlobalAdmin, permittedDevelopmentIds, recordAudit, requireActiveMembership, requireCompanyRole, requireDevelopmentAccess, requireDevelopmentRole } from '@/lib/organization'
 import { changedValidationContexts } from '@/lib/manual-document/invalidation'
-import { assertId, assertIsoDate, assertJsonPayload, assertSafeRichTextPayload, cleanText } from '@/lib/security/input'
+import { assertId, assertIsoDate, assertSafeRichTextPayload, cleanText } from '@/lib/security/input'
 
 export async function getDevelopment(id: string) {
   await requireDevelopmentAccess(id)
@@ -34,7 +34,7 @@ export async function createDevelopment(input: {
   const name = cleanText(input.name, "Nome do empreendimento", 160)
   const client = cleanText(input.client, "Construtora", 160)
   const deliveryDate = assertIsoDate(input.deliveryDate, "Data de entrega")
-  const data = assertJsonPayload(input.data)
+  const data = assertSafeRichTextPayload(input.data)
   await db.transaction(async tx=>{
     await tx.insert(developments).values({
       id,
@@ -57,8 +57,12 @@ export async function updateDevelopmentData(id: string, data: unknown) {
   const context = await requireDevelopmentRole(id,["admin","admin_empreendimento","editor"])
   const safeData = assertSafeRichTextPayload(data)
   await db.transaction(async tx => {
-    await tx.update(developments).set({ data: safeData, lastEditorId: context.user.id, updatedAt: new Date() }).where(and(eq(developments.id, id), eq(developments.organizationId, context.organization.id)))
+    const current=(await tx.select().from(developments).where(and(eq(developments.id,id),eq(developments.organizationId,context.organization.id))).for("update"))[0]
+    if(!current)throw new Error("Empreendimento não encontrado")
+    if(current.version!==context.development.version)throw new Error("Atualize a página: o conteúdo foi alterado por outra pessoa")
+    await tx.update(developments).set({ data: safeData, version:current.version+1, lastEditorId: context.user.id, updatedAt: new Date() }).where(and(eq(developments.id, id), eq(developments.organizationId, context.organization.id)))
     await tx.update(developmentContentValidations).set({ status: "rascunho", lastEditorId: context.user.id, validatorId: null, comment: null, updatedAt: new Date() }).where(and(eq(developmentContentValidations.developmentId,id),eq(developmentContentValidations.organizationId,context.organization.id)))
+    await tx.insert(auditLogs).values({id:crypto.randomUUID(),organizationId:context.organization.id,actorId:context.user.id,action:"development.edited",entityType:"development",entityId:id,metadata:{version:current.version+1,path:["conteudo"]}})
   })
   revalidatePath(`/empreendimentos/${id}`)
 }
@@ -131,7 +135,7 @@ function auditChanges(before: unknown, after: unknown, path: string[], depth = 0
 export async function saveDevelopmentModulePath(id: string, path: string[], value: unknown, expectedUpdatedAt?: string) {
   const context = await requireDevelopmentRole(id,["admin","admin_empreendimento","editor"])
   if (path.length === 0 || path.length > 8 || path.some((segment) => !/^[a-zA-Z0-9_-]{1,100}$/.test(segment))) throw new Error("Caminho de persistência inválido")
-  const safeValue = path[0] === "manuals" ? assertSafeRichTextPayload(value) : assertJsonPayload(value)
+  const safeValue = assertSafeRichTextPayload(value)
   const conditions = [eq(developments.id, id), eq(developments.organizationId, context.organization.id)]
   if (expectedUpdatedAt) conditions.push(eq(developments.updatedAt, new Date(expectedUpdatedAt)))
   const beforeRows = await db.select({ data: developments.data, updatedAt: developments.updatedAt, version: developments.version }).from(developments).where(and(eq(developments.id, id), eq(developments.organizationId, context.organization.id))).limit(1)

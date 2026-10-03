@@ -14,6 +14,7 @@ const criticalSuites=[
   "manual-public-contract.cjs",
   "databook-browser.cjs",
   "databook-folder-race.cjs",
+  "manual-platform-browser.cjs",
 ]
 const composer=read("tests/manual-composer.browser.cjs")
 for(const suite of criticalSuites)check(composer.includes(suite),"composer E2E registers "+suite)
@@ -26,6 +27,12 @@ for(const suite of browserSuites){
 
 const finishing=read("tests/manual-finishing-browser.cjs")
 check(finishing.includes("width: 390")&&finishing.includes("width: 768")&&finishing.includes("width: 1600"),"finishing browser coverage declares mobile, tablet and desktop viewports")
+check(read("tests/clients.browser.cjs").includes("clients-platform-browser.cjs"),"client E2E registers users/portal interaction matrix")
+const packageJson=JSON.parse(read("package.json"))
+check(packageJson.scripts.build.includes("verify-release.cjs"),"normal build requires matching API/database/browser attestation")
+check(packageJson.scripts["test:release"]==="node scripts/run-release-gate.cjs","release command executes the isolated full gate")
+const release=read("scripts/run-release-gate.cjs")
+for(const suite of ["clients-runtime.cjs","organization-runtime.cjs","audit-runtime.cjs","run-local-e2e.cjs"])check(release.includes(suite),"isolated release gate registers "+suite)
 
 if(failures){console.error("\nQA contract gate failed with",failures,"finding(s).");process.exit(1)}
 console.log("\nQA contract gate passed. Runtime E2E still requires an isolated local database and application.")
