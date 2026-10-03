@@ -1,6 +1,6 @@
 import { del, get, head } from "@vercel/blob"
 import { createHash } from "node:crypto"
-import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises"
+import { mkdir, open, readFile, stat, unlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { DatabookError } from "./ticket"
 
@@ -35,6 +35,43 @@ export async function headDatabookFile(pathname: string) {
   const result = await head(pathname)
   return { pathname: result.pathname, size: result.size, private: new URL(result.url).hostname.endsWith(".private.blob.vercel-storage.com") }
 }
+export async function readDatabookFileHead(pathname:string,length=8192){
+  const target=localPath(pathname)
+  if(target){
+    let handle
+    try{
+      handle=await open(target,"r")
+      const buffer=Buffer.alloc(length)
+      const {bytesRead}=await handle.read(buffer,0,length,0)
+      return new Uint8Array(buffer.subarray(0,bytesRead))
+    }catch(error){
+      if((error as NodeJS.ErrnoException).code==="ENOENT")throw new DatabookError("O arquivo ainda não foi recebido. Tente novamente.",409)
+      throw error
+    }finally{await handle?.close()}
+  }
+  requireDatabookStorage()
+  const result=await get(pathname,{access:"private"})
+  if(!result||result.statusCode!==200||!result.stream)throw new DatabookError("O arquivo ainda não foi recebido. Tente novamente.",409)
+  const reader=result.stream.getReader()
+  const chunks:Uint8Array[]=[]
+  let total=0
+  try{
+    while(total<length){
+      const {done,value}=await reader.read()
+      if(done)break
+      if(value){const chunk=value instanceof Uint8Array?value:new Uint8Array(value);chunks.push(chunk);total+=chunk.byteLength}
+    }
+  }finally{await reader.cancel().catch(()=>{})}
+  const output=new Uint8Array(Math.min(total,length))
+  let offset=0
+  for(const chunk of chunks){
+    const take=Math.min(chunk.byteLength,output.length-offset)
+    output.set(chunk.subarray(0,take),offset);offset+=take
+    if(offset>=output.length)break
+  }
+  return output
+}
+
 export async function readDatabookFile(pathname: string, contentType: string, ifNoneMatch?: string | null) {
   const target = localPath(pathname)
   if (!target) { requireDatabookStorage(); return get(pathname, { access: "private", ifNoneMatch: ifNoneMatch ?? undefined }) }
