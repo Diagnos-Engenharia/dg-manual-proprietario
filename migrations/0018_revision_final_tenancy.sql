@@ -16,6 +16,18 @@ END $$;
 CREATE INDEX IF NOT EXISTS "user_active_organization_idx"
   ON "user" ("activeOrganizationId");
 
+UPDATE "user" target
+SET "activeOrganizationId" = single_membership."organizationId"
+FROM (
+  SELECT "userId", MIN("organizationId") AS "organizationId"
+  FROM "member"
+  WHERE status = 'active'
+  GROUP BY "userId"
+  HAVING COUNT(*) = 1
+) single_membership
+WHERE target.id = single_membership."userId"
+  AND target."activeOrganizationId" IS NULL;
+
 -- Reconcile legacy duplicate memberships before enforcing uniqueness.
 DO $$
 DECLARE
