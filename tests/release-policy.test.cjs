@@ -3,9 +3,14 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
-const { stages, isolatedConfig, materialFingerprint, materialManifest, materialSnapshot, changedMaterialFiles, validateAttestation } = require('../scripts/release-policy.cjs')
+const { stages, assertImplementationBranch, isolatedConfig, materialFingerprint, materialManifest, materialSnapshot, changedMaterialFiles, validateAttestation } = require('../scripts/release-policy.cjs')
 const env = { DG_TEST_DATABASE_URL: 'postgres://test:test@localhost:55439/dg_review_utf8', DG_PREVIEW_FILES_DIR: path.join(os.tmpdir(), 'dg-review-files') }
 const passed = () => ({ schemaVersion: 1, status: 'passed', fingerprint: 'abc', stages: stages.map(name => ({ name, status: 'passed' })), matrices: ['internal', 'clients'].map(suite => ({ suite, results: ['mobile', 'tablet', 'desktop'].map(viewport => ({ viewport, passed: ['login', 'read', 'navigation', 'dialog', 'containment'] })) })) })
+
+test('implementation branch allows feature branches and rejects main, detached, and unknown identity', () => {
+  assert.equal(assertImplementationBranch('deh/release-policy'), 'deh/release-policy')
+  for (const branch of ['main', '', 'HEAD', 'unknown']) assert.throws(() => assertImplementationBranch(branch), /implementation branch/i)
+})
 
 test('release fixture bootstrap rejects hosted or shared databases and remote browser URLs', () => {
   assert.equal(isolatedConfig(env).origin, 'http://localhost:3000')
@@ -23,7 +28,7 @@ test('release evidence fails closed when stale, failed, incomplete or missing a 
 test('material fingerprint covers new source/test/config files and excludes documentation/attestation churn', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dg-release-policy-'))
   try {
-    fs.mkdirSync(path.join(root, 'app')); fs.mkdirSync(path.join(root, 'tests')); fs.mkdirSync(path.join(root, 'scripts')); fs.mkdirSync(path.join(root, '.qa'))
+    fs.mkdirSync(path.join(root, 'app')); fs.mkdirSync(path.join(root, 'tests')); fs.mkdirSync(path.join(root, 'scripts')); fs.mkdirSync(path.join(root, 'hooks')); fs.mkdirSync(path.join(root, '.qa'))
     fs.writeFileSync(path.join(root, 'app', 'page.tsx'), 'source\r\nline\r\n'); fs.writeFileSync(path.join(root, 'scripts', 'migration-policy.d.mts'), 'declare const migration: string\r\n'); fs.writeFileSync(path.join(root, 'package.json'), '{}')
     const before = materialFingerprint(root), beforeManifest = materialManifest(root)
     assert.ok(beforeManifest.some(file => file.path === 'scripts/migration-policy.d.mts'))
@@ -38,6 +43,8 @@ test('material fingerprint covers new source/test/config files and excludes docu
     assert.notEqual(materialFingerprint(root), before); assert.deepEqual(changedMaterialFiles(beforeManifest, materialManifest(root)), ['tests/future.test.ts'])
     const tests = materialFingerprint(root); fs.writeFileSync(path.join(root, 'package.json'), '{"changed":true}')
     assert.notEqual(materialFingerprint(root), tests); assert.deepEqual(changedMaterialFiles(beforeManifest, materialManifest(root)), ['package.json', 'tests/future.test.ts'])
+    const config = materialFingerprint(root); fs.writeFileSync(path.join(root, 'hooks', 'use-review.ts'), 'export const useReview = () => true')
+    assert.notEqual(materialFingerprint(root), config)
   } finally {
     const target = fs.realpathSync(root)
     assert.equal(path.dirname(target), fs.realpathSync(os.tmpdir()))

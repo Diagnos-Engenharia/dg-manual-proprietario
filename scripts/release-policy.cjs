@@ -5,6 +5,11 @@ const { createHash } = require('node:crypto')
 
 const stages = ['security', 'security-runtime', 'route-audit-regressions', 'domain', 'qa-contract', 'csp', 'migrations', 'database-preflight', 'clients-runtime', 'organization-runtime', 'audit-runtime', 'bootstrap-policy', 'build', 'browser']
 const local = value => ['localhost', '127.0.0.1', '[::1]'].includes(new URL(value).hostname)
+function assertImplementationBranch(branchName) {
+  assert.ok(typeof branchName === 'string' && branchName.trim() && !['main', 'HEAD', 'unknown'].includes(branchName.trim()), 'Release gate requires a named implementation branch other than main')
+  return branchName.trim()
+}
+
 function isolatedConfig(env) {
   assert.ok(!env.VERCEL && !env.VERCEL_ENV, 'Release fixtures cannot run in a hosted environment')
   const database = env.DG_TEST_DATABASE_URL
@@ -26,7 +31,7 @@ function materialSources(root, excludedPaths = []) {
       else if (entry.isFile() && (!entry.name.endsWith('.md') || path.relative(root, filename).split(path.sep)[0] === 'public')) files.push(filename)
     }
   }
-  for (const directory of ['app', 'components', 'lib', 'migrations', 'scripts', 'tests', 'public']) walk(path.join(root, directory))
+  for (const directory of ['app', 'components', 'hooks', 'lib', 'migrations', 'scripts', 'tests', 'public']) walk(path.join(root, directory))
   for (const name of fs.readdirSync(root)) if ((/\.(?:[cm]?[jt]s|json|ya?ml)$/.test(name) || ['.npmrc', '.browserslistrc'].includes(name)) && name !== 'next-env.d.ts' && fs.statSync(path.join(root, name)).isFile()) files.push(path.join(root, name))
   const excluded = new Set(excludedPaths)
   return files.map(filename => ({ filename, relative: path.relative(root, filename).split(path.sep).join('/') }))
@@ -91,4 +96,4 @@ function validateAttestation(attestation, fingerprint, currentManifest) {
   }
   return true
 }
-module.exports = { stages, isolatedConfig, materialFingerprint, materialManifest, materialSnapshot, changedMaterialFiles, validateAttestation }
+module.exports = { stages, assertImplementationBranch, isolatedConfig, materialFingerprint, materialManifest, materialSnapshot, changedMaterialFiles, validateAttestation }

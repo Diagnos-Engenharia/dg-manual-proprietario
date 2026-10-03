@@ -3,7 +3,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { spawn, spawnSync } = require('node:child_process')
 const { Pool } = require('pg')
-const { isolatedConfig, materialFingerprint, materialManifest, validateAttestation } = require('./release-policy.cjs')
+const { assertImplementationBranch, isolatedConfig, materialFingerprint, materialManifest, validateAttestation } = require('./release-policy.cjs')
 const root = path.resolve(__dirname, '..')
 const directory = path.resolve(process.env.TEST_ARTIFACT_DIR || path.join(root, '..', 'release-test'))
 const report = { schemaVersion: 1, status: 'running', startedAt: new Date().toISOString(), stages: [], matrices: [], limitations: ['OpenAI semantics use mocked responses; no live provider request', 'Private files use the isolated local adapter; live Vercel Blob transport is not certified', 'Chromium viewport/touch emulation; physical devices, Safari and Firefox not certified', 'Protected hosted preview still requires its separate review'] }
@@ -33,6 +33,7 @@ function run(name, args, env) {
 }
 ;(async () => {
   try {
+    assertImplementationBranch(git(['branch', '--show-current']))
     const config = isolatedConfig(process.env)
     assert.ok(directory !== root && !directory.startsWith(root + path.sep), 'Test artifacts must be stored outside the material source tree')
     assert.ok(config.files !== root && !config.files.startsWith(root + path.sep), 'Isolated private files must be outside the source tree')
@@ -77,7 +78,7 @@ function run(name, args, env) {
   } catch (error) { report.status = 'failed'; report.error = error.message; console.error(error); process.exitCode = 1 }
   finally {
     clearTimeout(timer); stop(); report.completedAt ||= new Date().toISOString()
-    if (fs.existsSync(directory)) fs.writeFileSync(path.join(directory, 'release-report.json'), JSON.stringify(report, null, 2) + '\n')
+    if (started && fs.existsSync(directory)) fs.writeFileSync(path.join(directory, 'release-report.json'), JSON.stringify(report, null, 2) + '\n')
     if (started && report.status === 'failed') {
       fs.mkdirSync(path.join(root, '.qa'), { recursive: true })
       fs.writeFileSync(path.join(root, '.qa', 'release-attestation.json'), JSON.stringify(report, null, 2) + '\n')
