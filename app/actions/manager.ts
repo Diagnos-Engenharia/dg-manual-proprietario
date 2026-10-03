@@ -140,12 +140,15 @@ export async function createManagerAccess(input:{
       .where(eq(user.email,email)).limit(1))[0]
 
     if(existing?.userId){
-      const memberId=existing.memberId??crypto.randomUUID()
+      let memberId=existing.memberId??crypto.randomUUID()
       if(existing.memberId){
         await ensureAdministratorCoverage(memberId,input.organizationId,input.role,false)
         await db.update(members).set({role:input.role,status:"active",lastAccessAt:new Date()}).where(eq(members.id,memberId))
       }else{
-        await db.insert(members).values({id:memberId,organizationId:input.organizationId,userId:existing.userId,role:input.role,status:"active",lastAccessAt:new Date()})
+        const linked=(await db.insert(members).values({id:memberId,organizationId:input.organizationId,userId:existing.userId,role:input.role,status:"active",lastAccessAt:new Date()})
+          .onConflictDoUpdate({target:[members.organizationId,members.userId],set:{role:input.role,status:"active",lastAccessAt:new Date()}})
+          .returning({id:members.id}))[0]
+        memberId=linked.id
       }
       await setAssignments(input.organizationId,memberId,input.role,selected)
       await recordAudit({
@@ -265,6 +268,7 @@ export async function managerDeleteMember(input:{organizationId:string;memberId:
       eq(developmentAssignments.memberId,input.memberId),
     ))
     await db.delete(members).where(and(eq(members.id,input.memberId),eq(members.organizationId,input.organizationId)))
+    await db.update(user).set({activeOrganizationId:null,updatedAt:new Date()}).where(and(eq(user.id,person.userId),eq(user.activeOrganizationId,input.organizationId)))
 
     const remaining=(await db.select({total:count()}).from(members).where(eq(members.userId,person.userId)))[0]
     const profile=(await db.select({platformRole:user.platformRole}).from(user).where(eq(user.id,person.userId)).limit(1))[0]
@@ -294,11 +298,17 @@ export async function deleteManagedOrganization(input:{organizationId:string}):P
     ])
     if(Number(memberCount[0]?.total??0)>0)throw new Error("Exclua todos os usuários da construtora antes de excluí-la")
     if(Number(developmentCount[0]?.total??0)>0)throw new Error("A construtora ainda possui empreendimentos. Exclua ou transfira os empreendimentos antes de excluí-la")
-    await db.delete(organizationInvitations).where(eq(organizationInvitations.organizationId,input.organizationId))
-    await db.delete(organizations).where(eq(organizations.id,input.organizationId))
-    await recordAudit({
-      organizationId:input.organizationId,actorId:context.user.id,
-      action:"manager.organization_deleted",entityType:"organization",entityId:input.organizationId,metadata:{name:company.name},
+    await db.transaction(async tx=>{
+      await tx.delete(organizationInvitations).where(eq(organizationInvitations.organizationId,input.organizationId))
+      await tx.delete(organizationApiKeys).where(eq(organizationApiKeys.organizationId,input.organizationId))
+      await tx.delete(organizationIntegrations).where(eq(organizationIntegrations.organizationId,input.organizationId))
+      await tx.delete(organizationNotifications).where(eq(organizationNotifications.organizationId,input.organizationId))
+      await tx.update(user).set({activeOrganizationId:null,updatedAt:new Date()}).where(eq(user.activeOrganizationId,input.organizationId))
+      await tx.insert(auditLogs).values({
+        id:crypto.randomUUID(),organizationId:input.organizationId,actorId:context.user.id,
+        action:"manager.organization_deleted",entityType:"organization",entityId:input.organizationId,metadata:{name:company.name},
+      })
+      await tx.delete(organizations).where(eq(organizations.id,input.organizationId))
     })
     revalidatePath("/gerenciador")
     return {ok:true,message:"Construtora excluída com sucesso."}
