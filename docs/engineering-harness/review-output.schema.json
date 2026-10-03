@@ -88,7 +88,7 @@
         "note": { "type": "string" }
       },
       "allOf": [
-        { "if": { "properties": { "status": { "const": "passed" } }, "required": ["status"] }, "then": { "required": ["evidence"] } }
+        { "if": { "properties": { "status": { "const": "passed" } }, "required": ["status"] }, "then": { "required": ["evidence"], "properties": { "evidence": { "properties": { "kind": { "const": "browser" } }, "required": ["kind"] } } } }
       ]
     },
     "visual": {
@@ -132,7 +132,7 @@
         "evidence": { "$ref": "#/$defs/evidence" }
       },
       "allOf": [
-        { "if": { "properties": { "functionalQa": { "const": "passed" } }, "required": ["functionalQa"] }, "then": { "required": ["evidence"] } }
+        { "if": { "properties": { "functionalQa": { "const": "passed" } }, "required": ["functionalQa"] }, "then": { "required": ["evidence"], "properties": { "evidence": { "properties": { "kind": { "enum": ["browser", "preview"] } }, "required": ["kind"] } } } }
       ]
     },
     "divergence": {
