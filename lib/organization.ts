@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm"
+import { and, asc, eq, isNull, lt, or } from "drizzle-orm"
 import { headers } from "next/headers"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
@@ -8,6 +8,8 @@ export type PlatformRole = "manager"
 export type CompanyRole = "admin" | "editor" | "validator"
 export type DevelopmentRole = CompanyRole | "admin_empreendimento"
 export type MemberStatus = "active" | "suspended" | "removed"
+
+const LAST_ACCESS_REFRESH_MS = 5 * 60 * 1000
 
 export async function requireAuthenticatedUser() {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -38,18 +40,76 @@ export async function isCurrentUserPlatformManager() {
   }
 }
 
-export async function getActiveMembership() {
-  const user = await requireAuthenticatedUser()
-  const rows = await db.select({ member: members, organization: organizations }).from(members)
+async function activeMembershipRows(userId:string){
+  return db.select({ member: members, organization: organizations }).from(members)
     .innerJoin(organizations,eq(members.organizationId,organizations.id))
-    .where(and(eq(members.userId,user.id),eq(members.status,"active"))).limit(1)
-  return rows[0] ? { user, member: rows[0].member, organization: rows[0].organization } : null
+    .where(and(eq(members.userId,userId),eq(members.status,"active")))
+    .orderBy(asc(members.createdAt),asc(members.id))
+}
+
+export async function getOrganizationChoices(){
+  const user=await requireAuthenticatedUser()
+  const [rows,profile]=await Promise.all([
+    activeMembershipRows(user.id),
+    db.select({activeOrganizationId:userTable.activeOrganizationId}).from(userTable).where(eq(userTable.id,user.id)).limit(1),
+  ])
+  const configured=profile[0]?.activeOrganizationId??null
+  const validConfigured=configured&&rows.some(row=>row.organization.id===configured)?configured:null
+  const activeOrganizationId=validConfigured??(rows.length===1?rows[0].organization.id:null)
+  if(activeOrganizationId!==configured&&rows.length===1){
+    await db.update(userTable).set({activeOrganizationId,updatedAt:new Date()}).where(eq(userTable.id,user.id))
+  }
+  return {
+    user,
+    activeOrganizationId,
+    organizations:rows.map(row=>({
+      id:row.organization.id,
+      name:row.organization.name,
+      role:row.member.role,
+      memberId:row.member.id,
+      current:row.organization.id===activeOrganizationId,
+    })),
+  }
+}
+
+export async function setActiveOrganization(organizationId:string){
+  const user=await requireAuthenticatedUser()
+  const row=(await db.select({id:members.id}).from(members).where(and(
+    eq(members.userId,user.id),
+    eq(members.organizationId,organizationId),
+    eq(members.status,"active"),
+  )).limit(1))[0]
+  if(!row)throw new Error("Você não possui acesso ativo a esta construtora")
+  await db.update(userTable).set({activeOrganizationId:organizationId,updatedAt:new Date()}).where(eq(userTable.id,user.id))
+  return organizationId
+}
+
+export async function getActiveMembership() {
+  const choices=await getOrganizationChoices()
+  if(!choices.activeOrganizationId)return null
+  const rows=await db.select({ member: members, organization: organizations }).from(members)
+    .innerJoin(organizations,eq(members.organizationId,organizations.id))
+    .where(and(
+      eq(members.userId,choices.user.id),
+      eq(members.organizationId,choices.activeOrganizationId),
+      eq(members.status,"active"),
+    )).limit(1)
+  if(!rows[0])return null
+  const staleBefore=new Date(Date.now()-LAST_ACCESS_REFRESH_MS)
+  await db.update(members).set({lastAccessAt:new Date()}).where(and(
+    eq(members.id,rows[0].member.id),
+    or(isNull(members.lastAccessAt),lt(members.lastAccessAt,staleBefore)),
+  ))
+  return { user:choices.user, member:rows[0].member, organization:rows[0].organization }
 }
 
 export async function requireActiveMembership() {
   const context = await getActiveMembership()
-  if (!context) throw new Error("Organização não configurada")
-  await db.update(members).set({lastAccessAt:new Date()}).where(eq(members.id,context.member.id))
+  if (!context) {
+    const choices=await getOrganizationChoices()
+    if(choices.organizations.length>1)throw new Error("Selecione a construtora ativa antes de continuar")
+    throw new Error("Organização não configurada")
+  }
   return context
 }
 
@@ -100,8 +160,9 @@ export async function canAccessDevelopment(developmentId:string) {
   try { await requireDevelopmentAccess(developmentId); return true }catch{return false}
 }
 
-export async function recordAudit(input:{organizationId:string;actorId:string;action:string;entityType:string;entityId:string;metadata?:Record<string,unknown>}){
-  await db.insert(auditLogs).values({id:crypto.randomUUID(),...input,metadata:input.metadata??{}})
+type AuditWriter=Pick<typeof db,"insert">
+export async function recordAudit(input:{organizationId:string;actorId:string;action:string;entityType:string;entityId:string;metadata?:Record<string,unknown>},writer:AuditWriter=db){
+  await writer.insert(auditLogs).values({id:crypto.randomUUID(),...input,metadata:input.metadata??{}})
 }
 
 export function canEditContent(role:DevelopmentRole){return role==="admin"||role==="admin_empreendimento"||role==="editor"}
