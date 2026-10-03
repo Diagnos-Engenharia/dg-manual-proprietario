@@ -7,3 +7,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+## Diagnos Engineering Harness
+
+For review and validation of DG Manual changes, follow [the DEH handbook](docs/engineering-harness/README.md) and its [report schema](docs/engineering-harness/review-output.schema.json). Keep this file concise; the handbook defines roles, evidence, and process boundaries.

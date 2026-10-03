@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Diagnos Engineering Harness review report",
+  "description": "Compact report for one immutable repository review and validation snapshot.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["snapshot", "reviews", "findings", "checks", "visual", "preview", "divergences", "limitations", "consolidatedBy", "implementationOwner"],
+  "properties": {
+    "snapshot": { "$ref": "#/$defs/snapshot" },
+    "reviews": {
+      "type": "array", "minItems": 6, "maxItems": 6,
+      "items": { "$ref": "#/$defs/review" },
+      "allOf": [
+        { "contains": { "properties": { "role": { "const": "DSI" } }, "required": ["role"] } },
+        { "contains": { "properties": { "role": { "const": "Diagnos QA" } }, "required": ["role"] } },
+        { "contains": { "properties": { "role": { "const": "DRAEL" } }, "required": ["role"] } },
+        { "contains": { "properties": { "role": { "const": "LURIEL" } }, "required": ["role"] } },
+        { "contains": { "properties": { "role": { "const": "Security" } }, "required": ["role"] } },
+        { "contains": { "properties": { "role": { "const": "Code Review" } }, "required": ["role"] } }
+      ]
+    },
+    "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+    "checks": { "type": "array", "items": { "$ref": "#/$defs/check" } },
+    "visual": { "$ref": "#/$defs/visual" },
+    "preview": { "$ref": "#/$defs/preview" },
+    "divergences": { "type": "array", "items": { "$ref": "#/$defs/divergence" } },
+    "limitations": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "consolidatedBy": { "const": "ASTRA" },
+    "implementationOwner": { "const": "LUNA" }
+  },
+  "$defs": {
+    "snapshot": {
+      "type": "object", "additionalProperties": false,
+      "required": ["repo", "pr", "baseSha", "headSha", "branch", "worktree", "workingTreeClean"],
+      "properties": {
+        "repo": { "type": "string", "minLength": 1 },
+        "pr": { "type": ["integer", "string"], "minimum": 1 },
+        "baseSha": { "type": "string", "minLength": 7 },
+        "headSha": { "type": "string", "minLength": 7 },
+        "branch": { "type": "string", "minLength": 1 },
+        "worktree": { "type": "string", "minLength": 1 },
+        "workingTreeClean": { "type": "boolean" }
+      }
+    },
+    "reviewRole": { "type": "string", "enum": ["DSI", "Diagnos QA", "DRAEL", "LURIEL", "Security", "Code Review"] },
+    "review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["role", "reviewer", "status", "baseSha", "headSha", "findingIds"],
+      "properties": {
+        "role": { "$ref": "#/$defs/reviewRole" },
+        "reviewer": { "type": "string", "minLength": 1 },
+        "status": { "type": "string", "enum": ["complete", "blocked", "not_run"] },
+        "baseSha": { "type": "string", "minLength": 7 },
+        "headSha": { "type": "string", "minLength": 7 },
+        "findingIds": { "type": "array", "items": { "type": "string" } },
+        "note": { "type": "string" }
+      }
+    },
+    "evidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "claim"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["static", "command", "browser", "preview", "self_attestation", "deployment", "human_approval"] },
+        "claim": { "type": "string", "minLength": 1 },
+        "artifact": { "type": "string" },
+        "location": { "type": "string" }
+      }
+    },
+    "finding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "priority", "condition", "impact", "evidence", "disposition"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "priority": { "type": "string", "enum": ["P0", "P1", "P2", "P3", "info"] },
+        "condition": { "type": "string", "minLength": 1 },
+        "impact": { "type": "string", "minLength": 1 },
+        "evidence": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/evidence" } },
+        "disposition": { "type": "string", "minLength": 1 }
+      }
+    },
+    "check": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "status"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "command": { "type": "string" },
+        "status": { "type": "string", "enum": ["passed", "failed", "blocked", "not_run"] },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "note": { "type": "string" }
+      }
+    },
+    "visual": {
+      "type": "object", "additionalProperties": false,
+      "required": ["browser", "scenarios"],
+      "properties": {
+        "browser": { "type": "string", "minLength": 1 },
+        "scenarios": {
+          "type": "array", "items": { "$ref": "#/$defs/visualScenario" },
+          "allOf": [
+            { "contains": { "properties": { "viewport": { "const": "mobile" } }, "required": ["viewport"] } },
+            { "contains": { "properties": { "viewport": { "const": "tablet" } }, "required": ["viewport"] } },
+            { "contains": { "properties": { "viewport": { "const": "desktop" } }, "required": ["viewport"] } }
+          ]
+        }
+      }
+    },
+    "visualScenario": {
+      "type": "object", "additionalProperties": false,
+      "required": ["viewport", "scenario", "status"],
+      "properties": {
+        "viewport": { "type": "string", "enum": ["mobile", "tablet", "desktop"] },
+        "scenario": { "type": "string", "minLength": 1 },
+        "status": { "type": "string", "enum": ["passed", "failed", "blocked", "not_run"] },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "note": { "type": "string" }
+      }
+    },
+    "preview": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "functionalQa"],
+      "properties": {
+        "status": { "type": "string", "enum": ["available", "unavailable", "failed", "unknown"] },
+        "deploymentState": { "type": "string", "enum": ["ready", "building", "error", "unknown", "not_applicable"] },
+        "functionalQa": { "type": "string", "enum": ["passed", "failed", "blocked", "not_run"] },
+        "url": { "type": "string", "format": "uri" },
+        "note": { "type": "string" },
+        "evidence": { "$ref": "#/$defs/evidence" }
+      }
+    },
+    "divergence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["topic", "positions", "status"],
+      "properties": {
+        "topic": { "type": "string", "minLength": 1 },
+        "positions": { "type": "array", "minItems": 2, "items": { "type": "string", "minLength": 1 } },
+        "status": { "type": "string", "enum": ["resolved", "open"] },
+        "resolution": { "type": "string" }
+      }
+    }
+  }
+}

@@ -7,6 +7,26 @@ const { stages, assertImplementationBranch, isolatedConfig, materialFingerprint,
 const env = { DG_TEST_DATABASE_URL: 'postgres://test:test@localhost:55439/dg_review_utf8', DG_PREVIEW_FILES_DIR: path.join(os.tmpdir(), 'dg-review-files') }
 const passed = () => ({ schemaVersion: 1, status: 'passed', fingerprint: 'abc', stages: stages.map(name => ({ name, status: 'passed' })), matrices: ['internal', 'clients'].map(suite => ({ suite, results: ['mobile', 'tablet', 'desktop'].map(viewport => ({ viewport, passed: ['login', 'read', 'navigation', 'dialog', 'containment'] })) })) })
 
+test('DEH report schema is parseable and requires the review and evidence contract', () => {
+  const schemaPath = path.join(__dirname, '..', 'docs', 'engineering-harness', 'review-output.schema.json')
+  const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'))
+  const required = ['snapshot', 'reviews', 'findings', 'checks', 'visual', 'preview', 'divergences', 'limitations', 'consolidatedBy', 'implementationOwner']
+  assert.deepEqual(schema.required, required)
+  assert.equal(schema.$defs.snapshot.required.includes('repo'), true)
+  assert.equal(schema.$defs.snapshot.required.includes('pr'), true)
+  assert.equal(schema.$defs.snapshot.required.includes('baseSha'), true)
+  assert.equal(schema.$defs.snapshot.required.includes('headSha'), true)
+  assert.deepEqual(schema.$defs.reviewRole.enum, ['DSI', 'Diagnos QA', 'DRAEL', 'LURIEL', 'Security', 'Code Review'])
+  assert.equal(schema.properties.consolidatedBy.const, 'ASTRA')
+  assert.equal(schema.properties.implementationOwner.const, 'LUNA')
+  assert.ok(schema.$defs.finding.required.includes('evidence'))
+  assert.ok(schema.$defs.finding.required.includes('disposition'))
+  assert.ok(schema.$defs.evidence.properties.kind.enum.includes('self_attestation'))
+  assert.ok(schema.$defs.evidence.properties.kind.enum.includes('static'))
+  assert.ok(schema.$defs.check.properties.status.enum.includes('not_run'))
+  assert.ok(schema.$defs.preview.properties.status.enum.includes('unavailable'))
+})
+
 test('implementation branch allows feature branches and rejects main, detached, and unknown identity', () => {
   assert.equal(assertImplementationBranch('deh/release-policy'), 'deh/release-policy')
   for (const branch of ['main', '', 'HEAD', 'unknown']) assert.throws(() => assertImplementationBranch(branch), /implementation branch/i)
