@@ -42,22 +42,24 @@ export async function createPublicApiKey(input:{name?:string}={}){
   const token="dg_live_"+randomBytes(32).toString("base64url")
   const keyPrefix=token.slice(0,18)
   const id=crypto.randomUUID()
-  await db.insert(organizationApiKeys).values({
-    id,
-    organizationId:context.organization.id,
-    name,
-    keyPrefix,
-    keyHash:hashToken(token),
-    scopes:DEFAULT_SCOPES,
-    createdBy:context.user.id,
-  })
-  await recordAudit({
-    organizationId:context.organization.id,
-    actorId:context.user.id,
-    action:"public_api.key_created",
-    entityType:"organization_api_key",
-    entityId:id,
-    metadata:{name,scopes:DEFAULT_SCOPES,keyPrefix},
+  await db.transaction(async tx=>{
+    await tx.insert(organizationApiKeys).values({
+      id,
+      organizationId:context.organization.id,
+      name,
+      keyPrefix,
+      keyHash:hashToken(token),
+      scopes:DEFAULT_SCOPES,
+      createdBy:context.user.id,
+    })
+    await recordAudit({
+      organizationId:context.organization.id,
+      actorId:context.user.id,
+      action:"public_api.key_created",
+      entityType:"organization_api_key",
+      entityId:id,
+      metadata:{name,scopes:DEFAULT_SCOPES,keyPrefix},
+    },tx)
   })
   return {ok:true,token,id,name,keyPrefix,scopes:DEFAULT_SCOPES}
 }
@@ -69,14 +71,16 @@ export async function revokePublicApiKey(id:string){
     .where(and(eq(organizationApiKeys.id,id),eq(organizationApiKeys.organizationId,context.organization.id),isNull(organizationApiKeys.revokedAt)))
     .limit(1)
   if(!rows[0])throw new Error("Chave não encontrada ou já revogada.")
-  await db.update(organizationApiKeys).set({revokedAt:new Date()}).where(eq(organizationApiKeys.id,id))
-  await recordAudit({
-    organizationId:context.organization.id,
-    actorId:context.user.id,
-    action:"public_api.key_revoked",
-    entityType:"organization_api_key",
-    entityId:id,
-    metadata:{name:rows[0].name,keyPrefix:rows[0].keyPrefix},
+  await db.transaction(async tx=>{
+    await tx.update(organizationApiKeys).set({revokedAt:new Date()}).where(eq(organizationApiKeys.id,id))
+    await recordAudit({
+      organizationId:context.organization.id,
+      actorId:context.user.id,
+      action:"public_api.key_revoked",
+      entityType:"organization_api_key",
+      entityId:id,
+      metadata:{name:rows[0].name,keyPrefix:rows[0].keyPrefix},
+    },tx)
   })
   return {ok:true}
 }
