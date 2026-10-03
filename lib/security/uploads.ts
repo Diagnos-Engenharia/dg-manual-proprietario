@@ -60,8 +60,8 @@ export async function assertMemorialFile(file:File,maxBytes=25*1024*1024){
 }
 
 function databookContentLooksActive(bytes:Uint8Array){
-  const sample=Buffer.from(bytes.slice(0,8192)).toString("utf8").replace(/^\\uFEFF/,"").trimStart().toLowerCase()
-  return /^(?:<!doctype\\s+html|<html\\b|<svg\\b|<script\\b|<\\?php\\b|<%|#!\\s*\\/)/i.test(sample)
+  const sample=Buffer.from(bytes.slice(0,8192)).toString("utf8").replace(/^\uFEFF/,"").trimStart().toLowerCase()
+  return /^(?:<!doctype\s+html|<html\b|<svg\b|<script\b|<\?php\b|<%|#!\s*\/)/i.test(sample)
 }
 
 export function assertDatabookContent(name:string,contentType:string,bytes:Uint8Array){
@@ -73,11 +73,11 @@ export function assertDatabookContent(name:string,contentType:string,bytes:Uint8
     throw new UploadValidationError("O conteúdo do arquivo não corresponde a um PDF válido.")
   if((lower.endsWith(".png")||type==="image/png")&&!starts(bytes,[0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]))
     throw new UploadValidationError("O conteúdo do arquivo não corresponde a uma imagem PNG válida.")
-  if((/\\.jpe?g$/.test(lower)||type==="image/jpeg")&&!starts(bytes,[0xff,0xd8,0xff]))
+  if((/\.jpe?g$/.test(lower)||type==="image/jpeg")&&!starts(bytes,[0xff,0xd8,0xff]))
     throw new UploadValidationError("O conteúdo do arquivo não corresponde a uma imagem JPEG válida.")
   if((lower.endsWith(".webp")||type==="image/webp")&&!(starts(bytes,[0x52,0x49,0x46,0x46])&&bytes[8]===0x57&&bytes[9]===0x45&&bytes[10]===0x42&&bytes[11]===0x50))
     throw new UploadValidationError("O conteúdo do arquivo não corresponde a uma imagem WebP válida.")
-  if((/\\.(?:docx|xlsx|pptx)$/.test(lower)||/officedocument/.test(type))&&!starts(bytes,[0x50,0x4b]))
+  if((/\.(?:docx|xlsx|pptx)$/.test(lower)||/officedocument/.test(type))&&!starts(bytes,[0x50,0x4b]))
     throw new UploadValidationError("O conteúdo do arquivo não corresponde a um documento Office válido.")
 }
 

@@ -1,4 +1,6 @@
 const assert = require('node:assert/strict')
+const fs = require('node:fs/promises')
+const path = require('node:path')
 
 /** Runs against the existing isolated API/database fixtures, without remote storage. */
 module.exports = async function runDatabookFolderRace({ admin, pool, dev }) {
@@ -66,4 +68,26 @@ module.exports = async function runDatabookFolderRace({ admin, pool, dev }) {
     blocker.release()
     if (deleting) await deleting.catch(() => {})
   }
+  // A folder can legitimately contain files from previous upload windows.
+  // Seed 61 private local objects to prove one batch does not exhaust the
+  // quota reserved for 60 separate single-file HTTP deletions.
+  assert.ok(process.env.DG_PREVIEW_FILES_DIR, 'Batch fixture requires local storage')
+  const batchName = 'Pasta de 61 arquivos ' + crypto.randomUUID()
+  const batchCreated = await admin.post(foldersUrl, { data: { developmentId:dev, action:'create', name:batchName } })
+  assert.equal(batchCreated.status(),200,await batchCreated.text())
+  const batchFolder = (await batchCreated.json()).folders.find(item=>item.name===batchName)
+  const parent = (await pool.query('SELECT "organizationId","userId" FROM development WHERE id=$1',[dev])).rows[0]
+  for(let index=0;index<61;index++){
+    const fileId = crypto.randomUUID(), filename = 'arquivo-'+index+'.pdf'
+    const pathname = `databook/${parent.organizationId}/${dev}/${fileId}/${filename}`
+    const target = path.join(process.env.DG_PREVIEW_FILES_DIR,pathname)
+    await fs.mkdir(path.dirname(target),{recursive:true})
+    await fs.writeFile(target,Buffer.from('%PDF-batch-fixture'))
+    await pool.query('INSERT INTO databook_file(id,"userId","developmentId",folder,name,pathname,"contentType","sizeBytes") VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[fileId,parent.userId,dev,batchName,filename,pathname,'application/pdf',18])
+  }
+  const batchDeleted = await admin.post(foldersUrl,{data:{developmentId:dev,action:'delete',id:batchFolder.id,expectedName:batchName}})
+  assert.equal(batchDeleted.status(),200,await batchDeleted.text())
+  assert.equal((await pool.query('SELECT count(*)::int AS total FROM databook_file WHERE "developmentId"=$1 AND folder=$2',[dev,batchName])).rows[0].total,0)
+  assert.ok(!(await batchDeleted.json()).folders.some(item=>item.id===batchFolder.id))
+  console.log('DATABOOK_BATCH_61_PASS: all files and folder removed without per-file quota failures')
 }

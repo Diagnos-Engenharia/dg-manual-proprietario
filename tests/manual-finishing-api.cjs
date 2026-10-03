@@ -124,7 +124,7 @@ module.exports = async function runFinishingApiTests({ admin, reviewer, editor, 
   await emit(first.id, approved, 409)
   for (let index = 0; index < generated.length; index++) {
     const version = generated[index]
-    const fileUrl = '/api/manuals/file?pathname=' + encodeURIComponent(version.pathname)
+    const fileUrl = '/api/manuals/file?id=' + encodeURIComponent(version.id)
     assert.equal((await outsider.get(fileUrl)).status(), 404)
     assert.equal((await anonymous.get(fileUrl)).status(), 401)
     const download = await admin.get(fileUrl)

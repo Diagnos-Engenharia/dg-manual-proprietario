@@ -1,11 +1,12 @@
 'use server'
 
 import { createHash } from "node:crypto"
-import { and, count, eq, inArray, or } from "drizzle-orm"
+import { and, count, eq, inArray, or, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { db } from "@/lib/db"
 import {
   auditLogs,
+  clientAccesses,
   developmentAssignments,
   developments,
   members,
@@ -94,7 +95,6 @@ export async function listManagedOrganizations(){
   for(const grant of grants)grantsByMember.set(grant.memberId,[...(grantsByMember.get(grant.memberId)??[]),grant.developmentId])
   const membersByOrganization=new Map<string,typeof roster>()
   for(const person of roster){
-    if(person.userId===manager.user.id&&person.role==="owner")continue
     membersByOrganization.set(person.organizationId,[...(membersByOrganization.get(person.organizationId)??[]),person])
   }
   const projectsByOrganization=new Map<string,Array<{id:string;name:string}>>()
@@ -276,24 +276,23 @@ export async function managerDeleteMember(input:{organizationId:string;memberId:
       .innerJoin(user,eq(members.userId,user.id))
       .where(and(eq(members.id,input.memberId),eq(members.organizationId,input.organizationId))).limit(1))[0]
     if(!person)throw new Error("Usuário não encontrado")
-    await ensureAdministratorCoverage(input.memberId,input.organizationId,undefined,true)
-    await db.delete(developmentAssignments).where(and(
-      eq(developmentAssignments.organizationId,input.organizationId),
-      eq(developmentAssignments.memberId,input.memberId),
-    ))
-    await db.delete(members).where(and(eq(members.id,input.memberId),eq(members.organizationId,input.organizationId)))
-    await db.update(user).set({activeOrganizationId:null,updatedAt:new Date()}).where(and(eq(user.id,person.userId),eq(user.activeOrganizationId,input.organizationId)))
-
-    const remaining=(await db.select({total:count()}).from(members).where(eq(members.userId,person.userId)))[0]
-    const profile=(await db.select({platformRole:user.platformRole}).from(user).where(eq(user.id,person.userId)).limit(1))[0]
-    if(Number(remaining?.total??0)===0&&!profile?.platformRole){
-      await db.update(user).set({accessStatus:"disabled",updatedAt:new Date()}).where(eq(user.id,person.userId))
-      await db.delete(session).where(eq(session.userId,person.userId))
-    }
-
-    await recordAudit({
-      organizationId:input.organizationId,actorId:context.user.id,
-      action:"manager.member_deleted",entityType:"user",entityId:person.userId,metadata:{email:person.email},
+    // The platform Manager explicitly offboards members, including the last
+    // Administrator. Ordinary permission/status edits still require coverage.
+    await db.transaction(async tx=>{
+      await tx.execute(sql`SELECT id FROM "user" WHERE id = ${person.userId} FOR UPDATE`)
+      await tx.delete(developmentAssignments).where(and(eq(developmentAssignments.organizationId,input.organizationId),eq(developmentAssignments.memberId,input.memberId)))
+      await tx.delete(members).where(and(eq(members.id,input.memberId),eq(members.organizationId,input.organizationId)))
+      await tx.update(user).set({activeOrganizationId:null,updatedAt:new Date()}).where(and(eq(user.id,person.userId),eq(user.activeOrganizationId,input.organizationId)))
+      const remaining=(await tx.select({total:count()}).from(members).where(eq(members.userId,person.userId)))[0]
+      const clientLinks=(await tx.select({total:count()}).from(clientAccesses).where(eq(clientAccesses.userId,person.userId)))[0]
+      const profile=(await tx.select({platformRole:user.platformRole}).from(user).where(eq(user.id,person.userId)).limit(1))[0]
+      if(Number(remaining?.total??0)===0&&Number(clientLinks?.total??0)===0&&!profile?.platformRole){
+        await tx.update(user).set({accessStatus:"disabled",updatedAt:new Date()}).where(eq(user.id,person.userId))
+        await tx.delete(session).where(eq(session.userId,person.userId))
+      }
+      await tx.insert(auditLogs).values({id:crypto.randomUUID(),organizationId:input.organizationId,actorId:context.user.id,
+        action:"manager.member_deleted",entityType:"user",entityId:person.userId,metadata:{email:person.email},
+      })
     })
     revalidatePath("/gerenciador")
     return {ok:true,message:"Acesso do usuário excluído da construtora."}
@@ -306,11 +305,13 @@ export async function deleteManagedOrganization(input:{organizationId:string}):P
     await consumeRateLimit("manager-delete-org:"+context.user.id,{max:20,windowSeconds:3600})
     const company=(await db.select({id:organizations.id,name:organizations.name}).from(organizations).where(eq(organizations.id,input.organizationId)).limit(1))[0]
     if(!company)throw new Error("Construtora não encontrada")
-    const [memberCount,developmentCount]=await Promise.all([
+    const [memberCount,developmentCount,clientCount]=await Promise.all([
       db.select({total:count()}).from(members).where(eq(members.organizationId,input.organizationId)),
       db.select({total:count()}).from(developments).where(eq(developments.organizationId,input.organizationId)),
+      db.select({total:count()}).from(clientAccesses).where(eq(clientAccesses.organizationId,input.organizationId)),
     ])
     if(Number(memberCount[0]?.total??0)>0)throw new Error("Exclua todos os usuários da construtora antes de excluí-la")
+    if(Number(clientCount[0]?.total??0)>0)throw new Error("A construtora ainda possui vínculos de clientes")
     if(Number(developmentCount[0]?.total??0)>0)throw new Error("A construtora ainda possui empreendimentos. Exclua ou transfira os empreendimentos antes de excluí-la")
     await db.transaction(async tx=>{
       await tx.delete(organizationInvitations).where(eq(organizationInvitations.organizationId,input.organizationId))

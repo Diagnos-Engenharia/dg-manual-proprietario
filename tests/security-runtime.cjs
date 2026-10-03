@@ -56,6 +56,9 @@ async function main(){
   await expectOk("valid PNG signature is accepted",()=>uploads.assertImageFile(new MockFile(pngBytes,"logo.png","image/png"),1024))
   await expectReject("spoofed image MIME is rejected",()=>uploads.assertImageFile(new MockFile(Buffer.from("not-an-image"),"logo.png","image/png"),1024))
   await expectReject("active HTML upload is rejected from Databook",()=>uploads.assertDatabookFile(new MockFile(Buffer.from("<html></html>"),"arquivo.html","text/html")))
+  await expectReject("HTML disguised as a generic file is rejected",()=>uploads.assertDatabookFile(new MockFile(Buffer.from("\uFEFF <!doctype html><html>active</html>"),"arquivo.txt","application/octet-stream")))
+  await expectReject("generic MIME cannot bypass JPEG file signature",()=>uploads.assertDatabookFile(new MockFile(Buffer.from("plain text"),"arquivo.jpeg","application/octet-stream")))
+  await expectReject("generic MIME cannot bypass Office file signature",()=>uploads.assertDatabookFile(new MockFile(Buffer.from("plain text"),"arquivo.xlsx","application/octet-stream")))
   await expectOk("filename sanitizer removes CRLF and path characters",()=>{
     const safe=uploads.sanitizeFilename('..\\evil\r\nContent-Type: text/html?.pdf')
     if(/[\r\n\\/<>:*?|]/.test(safe))throw new Error("unsafe filename: "+safe)

@@ -65,7 +65,7 @@ export async function mutateDatabookFolder(input: { developmentId: unknown; acti
     if (folder.name !== input.expectedName) throw new DatabookError("A pasta foi alterada. Atualize a lista e tente novamente.", 409)
     const failed: string[] = []
     for (const file of catalog.files.filter(item => item.folder === folder.name)) {
-      try { await deleteDatabookFile({ developmentId: context.development.id, id: file.id, expectedName: file.name, expectedFolder: { id: folder.id, name: folder.name } }) } catch (error) {
+      try { await deleteAuthorizedDatabookFile(context, { id: file.id, expectedName: file.name, expectedFolder: { id: folder.id, name: folder.name } }) } catch (error) {
         // Stop immediately if another editor changed the folder while the batch was running.
         if (error instanceof DatabookError && error.code === "FOLDER_CHANGED") throw error
         failed.push(file.name)
@@ -186,9 +186,15 @@ export async function deleteDatabookFile(input: { developmentId?: unknown; id?: 
   const row = input.pathname ? await findDatabookFile(input.pathname) : null
   const context = await databookAccess(input.developmentId ?? row?.developmentId, true)
   await consumeRateLimit(`databook-delete:${context.user.id}`, { max: 60, windowSeconds: 3600 })
+  return deleteAuthorizedDatabookFile(context, { ...input, id: row?.id ?? input.id })
+}
+
+// A folder deletion is one authorized operation. Per-file requests retain their
+// own quota; the private batch routine cannot be selected by HTTP input.
+async function deleteAuthorizedDatabookFile(context: Context, input: { id?: unknown; expectedName?: unknown; expectedFolder?: { id: unknown; name: unknown } }) {
   return db.transaction(async tx => {
     const development = await lockDevelopment(tx, context)
-    const file = (await tx.select().from(databookFiles).where(and(eq(databookFiles.id, row?.id ?? String(input.id)), eq(databookFiles.developmentId, context.development.id))))[0]
+    const file = (await tx.select().from(databookFiles).where(and(eq(databookFiles.id, String(input.id)), eq(databookFiles.developmentId, context.development.id))))[0]
     if (!file) throw new DatabookError("Arquivo não encontrado.", 404)
     if (input.expectedFolder) {
       const folder = resolveDatabookFolders(development.data, await filesFor(tx, development.id)).find(item => item.id === input.expectedFolder!.id)

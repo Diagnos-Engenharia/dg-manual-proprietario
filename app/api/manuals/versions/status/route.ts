@@ -35,7 +35,7 @@ export async function POST(request: Request) {
         if(source.source.table?.status!=="aprovado")throw new FinishingContentError("A tabela da unidade precisa estar aprovada.",400)
       }
       if(body.status==="publicado")await tx.update(manualVersions).set({status:"substituido"}).where(and(eq(manualVersions.developmentId,current.developmentId),eq(manualVersions.organizationId,context.organization.id),eq(manualVersions.manualType,current.manualType),current.unitId?eq(manualVersions.unitId,current.unitId):isNull(manualVersions.unitId),eq(manualVersions.status,"publicado"),ne(manualVersions.id,current.id)))
-      await tx.update(manualVersions).set({status:body.status}).where(eq(manualVersions.id,current.id))
+      await tx.update(manualVersions).set({status:body.status,...(body.status==="publicado"?{publishedAt:new Date()}:{})}).where(eq(manualVersions.id,current.id))
       await tx.insert(auditLogs).values({id:crypto.randomUUID(),organizationId:context.organization.id,actorId:context.user.id,action:"manual.version."+body.status,entityType:"development",entityId:current.developmentId,metadata:{path:["emissao",current.manualType],versionId:current.id,revision:current.revision,before:current.status,after:body.status}})
     })
     return NextResponse.json({ok:true})

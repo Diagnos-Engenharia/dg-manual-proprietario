@@ -12,7 +12,7 @@ const securityHeaders = [
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https://*.blob.vercel-storage.com",
       "font-src 'self' data:",
-      "connect-src 'self' https://vitals.vercel-insights.com https://*.blob.vercel-storage.com",
+      "connect-src 'self' https://vitals.vercel-insights.com https://*.blob.vercel-storage.com https://vercel.com/api/blob/",
       "worker-src 'self' blob:",
       "frame-src 'none'",
       "upgrade-insecure-requests",

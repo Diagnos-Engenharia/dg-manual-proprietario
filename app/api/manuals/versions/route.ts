@@ -19,6 +19,7 @@ export async function GET(request: Request) {
   if (manualType === "acabamentos" && !unit) return NextResponse.json({ error: "Selecione uma unidade" }, { status: 400 })
   const rows = await db.select({
     id: manualVersions.id,
+    unitId: manualVersions.unitId,
     revision: manualVersions.revision,
     status: manualVersions.status,
     comment: manualVersions.comment,

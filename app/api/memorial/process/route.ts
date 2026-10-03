@@ -11,6 +11,7 @@ import { changedValidationContexts } from "@/lib/manual-document/invalidation"
 import { recordAudit,requireDevelopmentRole } from "@/lib/organization"
 import { assertId } from "@/lib/security/input"
 import { consumeRateLimit,RateLimitError } from "@/lib/security/rate-limit"
+import { manualApiError } from "@/lib/manual-document/http"
 
 export const maxDuration=60
 
@@ -114,6 +115,7 @@ async function templateFor(item:ChecklistItem,scope:ChecklistScope,userId:string
 
 export async function POST(request:Request){
   let importId=""
+  let processingScope: { organizationId:string; developmentId:string } | null = null
   try{
     const body=await request.json().catch(()=>({})) as {importId?:string};importId=String(body.importId??"")
     if(!importId)return NextResponse.json({error:"Importação não informada"},{status:400})
@@ -126,7 +128,8 @@ export async function POST(request:Request){
     const runtime=await getPlatformAiRuntime()
     if(!runtime)return NextResponse.json({error:"O Gerenciador ainda não configurou o motor de IA"},{status:409})
 
-    await db.update(memorialImports).set({status:"processing",provider:runtime.provider,model:runtime.model,error:null,updatedAt:new Date()}).where(eq(memorialImports.id,importId))
+    processingScope = { organizationId:context.organization.id, developmentId:memorial.developmentId }
+    await db.update(memorialImports).set({status:"processing",provider:runtime.provider,model:runtime.model,error:null,updatedAt:new Date()}).where(and(eq(memorialImports.id,importId),eq(memorialImports.organizationId,processingScope.organizationId),eq(memorialImports.developmentId,processingScope.developmentId)))
     const bytes=await bytesFromBlob(memorial.pathname)
     let text:string|undefined
     if(/\.docx$/i.test(memorial.filename)||memorial.contentType==="application/vnd.openxmlformats-officedocument.wordprocessingml.document")text=(await mammoth.extractRawText({buffer:bytes})).value.slice(0,500000)
@@ -188,7 +191,7 @@ export async function POST(request:Request){
   }catch(error){
     if(error instanceof RateLimitError)return NextResponse.json({error:error.message},{status:429,headers:{"Retry-After":String(error.retryAfterSeconds)}})
     console.error("Memorial processing failed",error)
-    if(importId)await db.update(memorialImports).set({status:"error",error:error instanceof Error?error.message:"Falha no processamento",updatedAt:new Date()}).where(eq(memorialImports.id,importId)).catch(()=>{})
-    return NextResponse.json({error:error instanceof Error?error.message:"Não foi possível processar o Memorial"},{status:500})
+    if(processingScope)await db.update(memorialImports).set({status:"error",error:"Não foi possível processar o Memorial. Tente novamente.",updatedAt:new Date()}).where(and(eq(memorialImports.id,importId),eq(memorialImports.organizationId,processingScope.organizationId),eq(memorialImports.developmentId,processingScope.developmentId))).catch(()=>{})
+    return manualApiError(error)
   }
 }

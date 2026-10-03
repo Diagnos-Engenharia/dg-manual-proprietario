@@ -12,6 +12,15 @@ module.exports = async function runPublicManualContractTests({ admin, pool, dev 
   await pool.query('INSERT INTO organization_api_key(id,"organizationId",name,"keyPrefix","keyHash",scopes,"createdBy") SELECT $1,"organizationId",$2,$3,$4,$5::jsonb,"userId" FROM development WHERE id=$6', [keyId, 'Isolated v1 contract test', token.slice(0, 16), createHash('sha256').update(token).digest('hex'), JSON.stringify(['manuals:read']), dev])
   const headers = { Authorization: 'Bearer ' + token }
   try {
+    const allowedOrigin=(process.env.PUBLIC_API_ALLOWED_ORIGINS||'').split(',').map(value=>value.trim()).filter(Boolean)[0]
+    if(allowedOrigin)for(const endpoint of ['/api/v1','/api/v1/health','/api/v1/openapi.json']){
+      for(const method of ['get','fetch']){
+        const response=method==='get'?await admin.get(endpoint,{headers:{Origin:allowedOrigin}}):await admin.fetch(endpoint,{method:'OPTIONS',headers:{Origin:allowedOrigin}})
+        assert.equal(response.headers()['access-control-allow-origin'],allowedOrigin,endpoint+' '+method+' must honor allowlist')
+      }
+      const denied=await admin.get(endpoint,{headers:{Origin:'https://untrusted.invalid'}})
+      assert.equal(denied.headers()['access-control-allow-origin'],undefined)
+    }
     const list = await admin.get('/api/v1/manuals?' + new URLSearchParams({ development_id: dev, limit: '100' }), { headers })
     assert.equal(list.status(), 200, await list.text())
     const data = (await list.json()).data

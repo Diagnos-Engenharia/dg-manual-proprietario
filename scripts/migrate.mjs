@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises"
 import path from "node:path"
 import pg from "pg"
+import { allowMigration } from "./migration-policy.mjs"
 
 const { Pool } = pg
 const connectionString = process.env.DATABASE_URL
@@ -26,6 +27,10 @@ try {
     .sort()
 
   for (const name of files) {
+    if (!allowMigration(name, process.env)) {
+      console.log(`skip test fixture ${name}`)
+      continue
+    }
     const applied = await pool.query('SELECT 1 FROM "_dg_migration" WHERE "name" = $1 LIMIT 1', [name])
     if (applied.rowCount) {
       console.log(`skip  ${name}`)

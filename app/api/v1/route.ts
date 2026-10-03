@@ -12,7 +12,7 @@ export function GET(request:Request){
       manuals:origin+"/api/v1/manuals",
     },
     authentication:"Bearer API key",
-  })
+  },200,request)
 }
 
-export function OPTIONS(){return publicOptions()}
+export function OPTIONS(request:Request){return publicOptions(request)}

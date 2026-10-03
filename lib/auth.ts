@@ -3,7 +3,7 @@ import { betterAuth } from "better-auth"
 import { APIError, createAuthMiddleware } from "better-auth/api"
 import { and, eq, gt } from "drizzle-orm"
 import { db, pool } from "@/lib/db"
-import { organizationInvitations, user as userTable } from "@/lib/db/schema"
+import { clientAccesses, developmentUnits, organizationInvitations, user as userTable } from "@/lib/db/schema"
 
 function toOrigin(value?: string) {
   if (!value) return null
@@ -55,13 +55,20 @@ export const auth = betterAuth({
         const token=ctx.headers?.get("x-dg-invite")?.trim()??""
         if(!email||!token)throw new APIError("FORBIDDEN",{message:"O cadastro no DG Manual exige um convite válido."})
         const tokenHash=createHash("sha256").update(token).digest("hex")
-        const invite=(await db.select({id:organizationInvitations.id}).from(organizationInvitations).where(and(
+        const invite=(await db.select().from(organizationInvitations).where(and(
           eq(organizationInvitations.tokenHash,tokenHash),
           eq(organizationInvitations.email,email),
           eq(organizationInvitations.status,"pending"),
           gt(organizationInvitations.expiresAt,new Date()),
         )).limit(1))[0]
         if(!invite)throw new APIError("FORBIDDEN",{message:"Convite inválido, expirado ou destinado a outro e-mail."})
+        if(invite.role === "client") {
+          if(!invite.clientAccessId || !invite.unitId) throw new APIError("FORBIDDEN",{message:"Convite de cliente indisponível."})
+          const access=(await db.select({id:clientAccesses.id}).from(clientAccesses)
+            .innerJoin(developmentUnits,and(eq(developmentUnits.id,clientAccesses.unitId),eq(developmentUnits.developmentId,clientAccesses.developmentId),eq(developmentUnits.organizationId,clientAccesses.organizationId)))
+            .where(and(eq(clientAccesses.id,invite.clientAccessId),eq(clientAccesses.organizationId,invite.organizationId),eq(clientAccesses.unitId,invite.unitId),eq(clientAccesses.email,email),eq(clientAccesses.status,"pending"))).limit(1))[0]
+          if(!access)throw new APIError("FORBIDDEN",{message:"Convite de cliente indisponível. Solicite um novo link à construtora."})
+        }
         return
       }
       if(ctx.path==="/sign-in/email"){

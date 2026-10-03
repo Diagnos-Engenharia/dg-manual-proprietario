@@ -1,10 +1,10 @@
 'use server'
 
 import { createHash } from "node:crypto"
-import { and, count, eq, inArray, isNull, or, sql } from "drizzle-orm"
+import { and, count, eq, gt, inArray, isNull, or, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { db } from "@/lib/db"
-import { auditLogs, developmentAssignments, developments, members, organizations, organizationInvitations, user } from "@/lib/db/schema"
+import { auditLogs, clientAccesses, developmentAssignments, developmentUnits, developments, members, organizations, organizationInvitations, user } from "@/lib/db/schema"
 import { isGlobalAdmin, recordAudit, requireActiveMembership, requireAuthenticatedUser, requireCompanyRole, requirePlatformManager, type DevelopmentRole } from "@/lib/organization"
 
 const hashToken = (token: string) => createHash("sha256").update(token).digest("hex")
@@ -100,10 +100,21 @@ export async function cancelOrganizationInvitation(id: string) {
 
 export async function getInvitationPreview(token: string) {
   try {
+    if(!/^[A-Za-z0-9_-]{20,128}$/.test(token)) return null
     const rows = await db.select({ invitation: organizationInvitations, organization: organizations }).from(organizationInvitations).innerJoin(organizations, eq(organizationInvitations.organizationId, organizations.id)).where(and(eq(organizationInvitations.tokenHash, hashToken(token)), eq(organizationInvitations.status, "pending"))).limit(1)
     const row = rows[0]
     if (!row || row.invitation.expiresAt < new Date()) return null
-    return { organization: row.organization, email: row.invitation.email, name: row.invitation.name, role: row.invitation.role, developmentIds: row.invitation.developmentIds, expiresAt: row.invitation.expiresAt }
+    let clientUnit: { unitLabel: string; developmentName: string } | null = null
+    if(row.invitation.role === "client") {
+      if(!row.invitation.clientAccessId || !row.invitation.unitId) return null
+      const access=(await db.select({tower:developmentUnits.tower,number:developmentUnits.number,developmentName:developments.name}).from(clientAccesses)
+        .innerJoin(developmentUnits,and(eq(developmentUnits.id,clientAccesses.unitId),eq(developmentUnits.developmentId,clientAccesses.developmentId),eq(developmentUnits.organizationId,clientAccesses.organizationId)))
+        .innerJoin(developments,and(eq(developments.id,clientAccesses.developmentId),eq(developments.organizationId,clientAccesses.organizationId)))
+        .where(and(eq(clientAccesses.id,row.invitation.clientAccessId),eq(clientAccesses.unitId,row.invitation.unitId),eq(clientAccesses.organizationId,row.invitation.organizationId),eq(clientAccesses.email,row.invitation.email),eq(clientAccesses.status,"pending"))).limit(1))[0]
+      if(!access)return null
+      clientUnit={unitLabel:[access.tower,"Unidade "+access.number].filter(Boolean).join(" · "),developmentName:access.developmentName}
+    }
+    return { organization: {id:row.organization.id,name:row.organization.name}, email: row.invitation.email, name: row.invitation.name, role: row.invitation.role, developmentIds: row.invitation.developmentIds, expiresAt: row.invitation.expiresAt, clientUnit }
   } catch {
     return null
   }
@@ -111,6 +122,7 @@ export async function getInvitationPreview(token: string) {
 
 export async function acceptOrganizationInvitation(token: string) {
   const current = await requireAuthenticatedUser()
+  if(!/^[A-Za-z0-9_-]{20,128}$/.test(token))throw new Error("Convite inválido ou expirado")
   const tokenHash = hashToken(token)
 
   const accepted = await db.transaction(async (tx) => {
@@ -122,15 +134,37 @@ export async function acceptOrganizationInvitation(token: string) {
     if (!invite || invite.expiresAt < new Date()) throw new Error("Convite inválido ou expirado")
     if (invite.email !== current.email.toLowerCase()) throw new Error("Este convite foi enviado para outro e-mail")
 
+    if(invite.role === "client") {
+      if(!invite.clientAccessId || !invite.unitId)throw new Error("Convite de cliente indisponível")
+      // Same lock order as access changes and password resets.
+      await tx.execute(sql`select "id" from "organization" where "id" = ${invite.organizationId} for update`)
+      const access=(await tx.select().from(clientAccesses).where(and(eq(clientAccesses.id,invite.clientAccessId),eq(clientAccesses.organizationId,invite.organizationId),eq(clientAccesses.unitId,invite.unitId),eq(clientAccesses.email,invite.email))).limit(1).for("update"))[0]
+      if(!access || access.status !== "pending" || (access.userId && access.userId !== current.id))throw new Error("Convite de cliente indisponível. Solicite a reativação à construtora")
+      const unit=(await tx.select({id:developmentUnits.id}).from(developmentUnits).where(and(eq(developmentUnits.id,access.unitId),eq(developmentUnits.developmentId,access.developmentId),eq(developmentUnits.organizationId,access.organizationId))).limit(1))[0]
+      if(!unit || invite.developmentIds.length !== 1 || invite.developmentIds[0] !== access.developmentId)throw new Error("Unidade não disponível")
+      await tx.execute(sql`select "id" from "user" where "id" = ${current.id} for update`)
+      const profile=(await tx.select({accessStatus:user.accessStatus}).from(user).where(eq(user.id,current.id)).limit(1))[0]
+      if(!profile || profile.accessStatus !== "active")throw new Error("Conta inativa")
+      const claimed=await tx.update(organizationInvitations).set({status:"accepted",acceptedBy:current.id,acceptedAt:new Date()})
+        .where(and(eq(organizationInvitations.id,invite.id),eq(organizationInvitations.status,"pending"),gt(organizationInvitations.expiresAt,new Date()))).returning({id:organizationInvitations.id})
+      if(!claimed[0])throw new Error("Convite inválido ou já utilizado")
+      await tx.update(clientAccesses).set({userId:current.id,status:"active",updatedAt:new Date()}).where(and(eq(clientAccesses.id,access.id),eq(clientAccesses.organizationId,invite.organizationId)))
+      await tx.insert(auditLogs).values({id:crypto.randomUUID(),organizationId:invite.organizationId,actorId:current.id,action:"invitation.accepted",entityType:"invitation",entityId:invite.id,metadata:{role:"client",clientAccessId:access.id,unitId:access.unitId}})
+      return invite
+    }
+
     // Serializa aceites do mesmo usuário. Isso impede que dois convites/tabs concorrentes
     // criem memberships duplicados para a mesma construtora.
     await tx.execute(sql`select "id" from "user" where "id" = ${current.id} for update`)
+    const profile=(await tx.select({accessStatus:user.accessStatus}).from(user).where(eq(user.id,current.id)).limit(1))[0]
+    if(!profile || profile.accessStatus !== "active")throw new Error("Conta inativa")
 
     const claimed = await tx.update(organizationInvitations)
       .set({ status: "accepted", acceptedBy: current.id, acceptedAt: new Date() })
       .where(and(
         eq(organizationInvitations.id, invite.id),
         eq(organizationInvitations.status, "pending"),
+        gt(organizationInvitations.expiresAt,new Date()),
       ))
       .returning({ id: organizationInvitations.id })
     if (!claimed[0]) throw new Error("Este convite já foi utilizado")
@@ -178,10 +212,10 @@ export async function acceptOrganizationInvitation(token: string) {
     return invite
   })
 
-  await db.update(user).set({activeOrganizationId:accepted.organizationId,updatedAt:new Date()})
+  if(accepted.role !== "client")await db.update(user).set({activeOrganizationId:accepted.organizationId,updatedAt:new Date()})
     .where(and(eq(user.id,current.id),isNull(user.activeOrganizationId)))
 
-  await recordAudit({
+  if(accepted.role !== "client")await recordAudit({
     organizationId: accepted.organizationId,
     actorId: current.id,
     action: "invitation.accepted",
@@ -191,6 +225,8 @@ export async function acceptOrganizationInvitation(token: string) {
   })
   revalidatePath("/configuracoes")
   revalidatePath("/gerenciador")
+  revalidatePath("/usuarios")
+  revalidatePath("/meu-manual")
   return accepted.organizationId
 }
 

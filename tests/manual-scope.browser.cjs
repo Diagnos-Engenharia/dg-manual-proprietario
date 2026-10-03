@@ -124,7 +124,7 @@ async function until(check,label){for(let i=0;i<70;i++){if(await check())return;
       const response=await context.request.post(origin+'/api/manuals/compile',{data:{developmentId:id,manualType:manual}})
       assert.equal(response.status(),201,await response.text())
       const file=await response.json()
-      const download=await context.request.get(origin+'/api/manuals/file?pathname='+encodeURIComponent(file.pathname))
+      const download=await context.request.get(origin+'/api/manuals/file?id='+encodeURIComponent(file.id))
       assert.equal(download.status(),200)
       const pdfPath=path.join(output,manual+'.pdf');await fs.writeFile(pdfPath,await download.body())
       const text=execFileSync('pdftotext',[pdfPath,'-'],{encoding:'utf8'})

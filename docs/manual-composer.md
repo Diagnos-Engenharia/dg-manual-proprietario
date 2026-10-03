@@ -40,7 +40,7 @@ A migração aditiva `0012_units_finishing_documents.sql` acrescenta o cadastro,
 
 ## Prévia, navegação e edição
 
-No preview, conteúdo aguardando validação aparece em amarelo (`#B77900`); conteúdo aprovado utiliza as cores da identidade. Rascunhos e rejeitados mantêm estrutura/pendências, sem exibir seu corpo nas páginas. Na composição oficial, somente conteúdo aprovado entra nos blocos técnicos. `renderManualPdf()` recusa blocos ou comandos de revisão mesmo quando chamado diretamente.
+No preview, conteúdo aguardando validação aparece em amarelo (`#B77900`); conteúdo aprovado utiliza as cores da identidade. Textos técnicos em rascunho ou rejeitados mantêm estrutura/pendências, sem exibir seu corpo nas páginas. A exceção solicitada para acabamentos mostra os registros salvos da tabela em amarelo, inclusive rascunhos/rejeitados, para conferência da unidade; isso não autoriza publicação. Na composição oficial, somente conteúdo aprovado entra nos blocos técnicos. `renderManualPdf()` recusa blocos ou comandos de revisão mesmo quando chamado diretamente.
 
 Visualizar faz o sumário navegar até a página correspondente. Modo edição transforma tópicos e textos em atalhos para sua fonte na Elaboração. Descrição e manutenção levam ao conteúdo específico do sistema; a tabela independente preserva unidade, grupo e ambiente, inclusive quando só existem registros de materiais ou instalações naquele ambiente. Ficha, identidade, contatos e comissionamento mantêm seus próprios destinos.
 

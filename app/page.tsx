@@ -7,12 +7,14 @@ import { listDevelopments } from "@/app/actions/developments"
 import { getActiveMembership,getOrganizationChoices,isCurrentUserPlatformManager } from "@/lib/organization"
 import { toDashboardDevelopment } from "@/lib/dashboard"
 import { DashboardInsights, DashboardPrioritySummary } from "@/components/dashboard/dashboard-insights"
+import { hasClientIdentity } from "@/lib/clients"
 
 export default async function DashboardPage() {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) redirect("/sign-in")
   if (await isCurrentUserPlatformManager()) redirect("/gerenciador")
   const choices = await getOrganizationChoices()
+  if (!choices.organizations.length && await hasClientIdentity(session.user.id)) redirect("/meu-manual")
   if (!choices.organizations.length) redirect("/onboarding")
   if (!choices.activeOrganizationId && choices.organizations.length > 1) redirect("/selecionar-organizacao")
   const membership = await getActiveMembership()

@@ -16,8 +16,12 @@
     "test:domain": "tsx --test tests/manual-*.test.ts tests/databook*.test.ts",
     "test:gate": "pnpm run test:security && pnpm run test:domain && pnpm run test:qa-contract",
     "test:qa-contract": "node tests/qa-contract.cjs",
-    "test:e2e": "node tests/manual-composer.browser.cjs",
-    "test:release": "pnpm run test:gate && pnpm run test:e2e"
+    "test:e2e": "node tests/manual-composer.browser.cjs && node tests/clients.browser.cjs",
+    "test:clients": "node tests/clients.browser.cjs",
+    "test:clients-runtime": "node tests/clients-runtime.cjs",
+    "test:local": "node scripts/run-local-e2e.cjs",
+    "test:csp": "node tests/databook-csp.cjs",
+    "test:release": "pnpm run test:gate && pnpm run test:csp && pnpm run test:e2e"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
