@@ -30,6 +30,8 @@ test('DEH report schema is parseable and requires the review and evidence contra
   assert.ok(schema.$defs.evidence.properties.kind.enum.includes('static'))
   assert.ok(schema.$defs.check.properties.status.enum.includes('not_run'))
   assert.ok(schema.$defs.check.allOf.some(rule => rule.if.properties.status.const === 'passed' && rule.then.required.includes('evidence')))
+  assert.deepEqual(schema.$defs.check.allOf.find(rule => rule.if.properties.status.const === 'passed').then.properties.evidence.properties.kind.enum, ['static', 'command', 'browser', 'preview', 'deployment'])
+  assert.ok(schema.$defs.check.allOf.some(rule => rule.if.properties.evidence?.properties?.kind?.const === 'command' && rule.then.required.includes('command')))
   assert.ok(schema.$defs.visual.properties.scenarios.allOf.some(rule => rule.contains.properties.viewport.const === 'mobile'))
   assert.ok(schema.$defs.visual.properties.scenarios.allOf.some(rule => rule.contains.properties.viewport.const === 'tablet'))
   assert.ok(schema.$defs.visual.properties.scenarios.allOf.some(rule => rule.contains.properties.viewport.const === 'desktop'))
