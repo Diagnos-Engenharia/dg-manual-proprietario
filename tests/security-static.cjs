@@ -67,7 +67,7 @@ check(!publicApi.includes('"Access-Control-Allow-Origin":"*"')&&publicApi.includ
 check(nextConfig.includes("Content-Security-Policy")&&nextConfig.includes("frame-ancestors 'none'")&&nextConfig.includes("object-src 'none'"),"browser security headers include CSP anti-framing and anti-object rules")
 check(nextConfig.includes("Strict-Transport-Security")&&nextConfig.includes("X-Content-Type-Options"),"HSTS and nosniff are configured")
 check(read("migrations/0016_tenant_integrity_constraints.sql").includes("assignment_development_tenant_fk"),"database enforces tenant integrity for development assignments")
-check(read("migrations/0017_organization_integrity_constraints.sql").includes("member_organization_fk")&&read("migrations/0017_organization_integrity_constraints.sql").includes("ON DELETE RESTRICT"),"database blocks organization deletion while tenant resources still reference it")
+check(read("migrations/0017_organization_integrity_constraints.sql").includes("member_organization_fk")&&read("migrations/0017_organization_integrity_constraints.sql").includes("ON DELETE RESTRICT"),"database blocks organization deletion while tenant resources still reference it")\nconst revisionMigration=read("migrations/0018_revision_final_tenancy.sql")\ncheck(revisionMigration.includes("member_organization_user_unique"),"database enforces one membership per organization/user")\ncheck(revisionMigration.includes("development_unit_development_tenant_fk"),"development units enforce composite tenant integrity")\ncheck(organization.includes("activeOrganizationId")&&organization.includes("setActiveOrganization"),"tenant context is selected explicitly and validated server-side")\ncheck(databookService.includes("readDatabookFileHead")&&databookService.includes("assertDatabookContent"),"direct Blob uploads are content-sniffed before finalization")\ncheck(technicalService.includes("assertSafeRichTextPayload"),"technical rich text receives server-side active-content validation")
 
 const sourceFiles=[...walk("app"),...walk("components"),...walk("lib")]
 const rawHtml=sourceFiles.filter(p=>read(p).includes("dangerouslySetInnerHTML"))
@@ -82,22 +82,58 @@ for(const p of sourceFiles){
 }
 check(exposedSecrets.length===0,"no sensitive server environment variables are referenced from client code"+(exposedSecrets.length?" ("+[...new Set(exposedSecrets)].join(", ")+")":""))
 
-const scopedRoutes=[
-  "app/api/brand/file/route.ts",
-  "app/api/brand/upload/route.ts",
-  "app/api/databook/delete/route.ts",
-  "app/api/databook/file/route.ts",
-  "app/api/databook/upload/route.ts",
-  "app/api/manuals/compile/route.ts",
-  "app/api/manuals/file/route.ts",
-  "app/api/manuals/validate/route.ts",
-  "app/api/manuals/versions/route.ts",
-  "app/api/manuals/versions/status/route.ts",
-  "app/api/memorial/process/route.ts",
-  "app/api/memorial/upload/route.ts",
-]
-const unguarded=scopedRoutes.filter(p=>{const body=read(p);if(/requireDevelopment(?:Access|Role)/.test(body))return false;if(p.includes("/databook/")&&body.includes("@/lib/databook/service")&&/requireDevelopmentAccess/.test(databookService))return false;return true})
-check(unguarded.length===0,"tenant-sensitive routes enforce development authorization"+(unguarded.length?" ("+unguarded.join(", ")+")":""))
+const routeClassification={
+  "app/api/auth/[...all]/route.ts":"PUBLIC",
+  "app/api/brand/file/route.ts":"TENANT",
+  "app/api/brand/upload/route.ts":"TENANT",
+  "app/api/databook/delete/route.ts":"TENANT",
+  "app/api/databook/file/route.ts":"TENANT",
+  "app/api/databook/folders/route.ts":"TENANT",
+  "app/api/databook/upload/route.ts":"TENANT",
+  "app/api/finishing/tables/route.ts":"TENANT",
+  "app/api/finishing/units/route.ts":"TENANT",
+  "app/api/health/route.ts":"PUBLIC",
+  "app/api/manuals/compile/route.ts":"TENANT",
+  "app/api/manuals/editorial/route.ts":"TENANT",
+  "app/api/manuals/file/route.ts":"TENANT",
+  "app/api/manuals/preview/route.ts":"TENANT",
+  "app/api/manuals/technical/route.ts":"TENANT",
+  "app/api/manuals/validate/route.ts":"TENANT",
+  "app/api/manuals/versions/route.ts":"TENANT",
+  "app/api/manuals/versions/status/route.ts":"TENANT",
+  "app/api/memorial/process/route.ts":"TENANT",
+  "app/api/memorial/upload/route.ts":"TENANT",
+  "app/api/organization/context/route.ts":"TENANT",
+  "app/api/organization/logo/route.ts":"TENANT",
+  "app/api/v1/developments/route.ts":"API_KEY",
+  "app/api/v1/health/route.ts":"PUBLIC",
+  "app/api/v1/manuals/[id]/file/route.ts":"API_KEY",
+  "app/api/v1/manuals/[id]/route.ts":"API_KEY",
+  "app/api/v1/manuals/route.ts":"API_KEY",
+  "app/api/v1/openapi.json/route.ts":"PUBLIC",
+  "app/api/v1/route.ts":"PUBLIC",
+}
+const discoveredRoutes=walk("app/api").filter(p=>p.endsWith("route.ts")).map(p=>p.replace(/\\\\/g,"/")).sort()
+const unclassifiedRoutes=discoveredRoutes.filter(p=>!routeClassification[p])
+const staleRouteClassifications=Object.keys(routeClassification).filter(p=>!discoveredRoutes.includes(p))
+check(unclassifiedRoutes.length===0,"every API route has an explicit security classification"+(unclassifiedRoutes.length?" ("+unclassifiedRoutes.join(", ")+")":""))
+check(staleRouteClassifications.length===0,"security route manifest has no stale entries"+(staleRouteClassifications.length?" ("+staleRouteClassifications.join(", ")+")":""))
+
+const tenantRoutes=Object.entries(routeClassification).filter(([,classification])=>classification==="TENANT").map(([p])=>p)
+const unguarded=tenantRoutes.filter(p=>{
+  const body=read(p)
+  if(/requireDevelopment(?:Access|Role)|requireActiveMembership|getActiveMembership|requireCompanyRole/.test(body))return false
+  if(p.includes("/databook/")&&body.includes("@/lib/databook/")&&/requireDevelopmentAccess/.test(databookService))return false
+  if(p.includes("/finishing/")&&body.includes("@/lib/finishing-units")&&/requireDevelopmentAccess/.test(finishingUnits))return false
+  if(p==="app/api/manuals/technical/route.ts"&&body.includes("technical-service")&&/requireDevelopmentAccess/.test(technicalService))return false
+  return true
+})
+check(unguarded.length===0,"tenant-classified routes enforce server-side tenant authorization"+(unguarded.length?" ("+unguarded.join(", ")+")":""))
+
+const apiKeyRoutes=Object.entries(routeClassification).filter(([,classification])=>classification==="API_KEY").map(([p])=>p)
+const apiKeyUnguarded=apiKeyRoutes.filter(p=>!read(p).includes("requirePublicApiScope"))
+check(apiKeyUnguarded.length===0,"API_KEY routes require scoped public API authentication"+(apiKeyUnguarded.length?" ("+apiKeyUnguarded.join(", ")+")":""))
+
 check(databookService.includes("consumeRateLimit"),"Databook mutation services are rate limited")
 
 if(failures){
