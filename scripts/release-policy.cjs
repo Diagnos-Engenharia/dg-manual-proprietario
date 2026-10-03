@@ -15,8 +15,8 @@ function isolatedConfig(env) {
   return { database, origin: 'http://localhost:3000', files: path.resolve(env.DG_PREVIEW_FILES_DIR) }
 }
 
-function materialFingerprint(root) {
-  const files = [], hash = createHash('sha256')
+function materialSources(root) {
+  const files = []
   function walk(directory) {
     if (!fs.existsSync(directory)) return
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
@@ -28,20 +28,48 @@ function materialFingerprint(root) {
   }
   for (const directory of ['app', 'components', 'lib', 'migrations', 'scripts', 'tests', 'public']) walk(path.join(root, directory))
   for (const name of fs.readdirSync(root)) if ((/\.(?:[cm]?[jt]s|json|ya?ml)$/.test(name) || ['.npmrc', '.browserslistrc'].includes(name)) && name !== 'next-env.d.ts' && fs.statSync(path.join(root, name)).isFile()) files.push(path.join(root, name))
-  const entries = files.map(filename => ({ filename, relative: path.relative(root, filename).split(path.sep).join('/') })).sort((a, b) => a.relative < b.relative ? -1 : a.relative > b.relative ? 1 : 0)
+  return files.map(filename => ({ filename, relative: path.relative(root, filename).split(path.sep).join('/') })).sort((a, b) => a.relative < b.relative ? -1 : a.relative > b.relative ? 1 : 0)
+}
+
+function materialContent(filename) {
+  const bytes = fs.readFileSync(filename)
+  return /\.(?:tsx?|mts|cts|jsx?|mjs|cjs|json|ya?ml|css|html|svg|txt|sql|xml|md)$/.test(filename) || path.basename(filename).startsWith('.')
+    ? bytes.toString('utf8').replace(/\r\n/g, '\n')
+    : bytes
+}
+
+function materialManifest(root) {
+  return materialSources(root).map(({ filename, relative }) => ({
+    path: relative,
+    sha256: createHash('sha256').update(materialContent(filename)).digest('hex'),
+  }))
+}
+
+function changedMaterialFiles(previous, current) {
+  const before = new Map((Array.isArray(previous) ? previous : []).map(file => [file.path, file.sha256]))
+  const after = new Map((Array.isArray(current) ? current : []).map(file => [file.path, file.sha256]))
+  return [...new Set([...before.keys(), ...after.keys()])]
+    .filter(filename => before.get(filename) !== after.get(filename))
+    .sort()
+}
+
+function materialFingerprint(root) {
+  const hash = createHash('sha256')
+  const entries = materialSources(root)
   for (const { filename, relative } of entries) {
     hash.update(relative); hash.update('\0')
-    const bytes = fs.readFileSync(filename)
-    hash.update(/\.(?:tsx?|mts|cts|jsx?|mjs|cjs|json|ya?ml|css|html|svg|txt|sql|xml|md)$/.test(filename) || path.basename(filename).startsWith('.') ? bytes.toString('utf8').replace(/\r\n/g, '\n') : bytes)
+    hash.update(materialContent(filename))
     hash.update('\0')
   }
   return hash.digest('hex')
 }
 
-function validateAttestation(attestation, fingerprint) {
+function validateAttestation(attestation, fingerprint, currentManifest) {
   assert.equal(attestation.schemaVersion, 1, 'Unsupported release attestation')
   assert.equal(attestation.status, 'passed', 'The isolated release gate did not pass')
-  assert.equal(attestation.fingerprint, fingerprint, 'Release tests are stale: material sources changed after the isolated gate')
+  const changed = changedMaterialFiles(attestation.materialFiles, currentManifest)
+  const detail = changed.length ? ` Changed material files: ${changed.join(', ')}` : ''
+  assert.equal(attestation.fingerprint, fingerprint, 'Release tests are stale: material sources changed after the isolated gate.' + detail)
   for (const name of stages) assert.ok(attestation.stages?.some(stage => stage.name === name && stage.status === 'passed'), 'Missing passed release stage: ' + name)
   for (const suite of ['internal', 'clients']) {
     const matrix = attestation.matrices?.find(item => item.suite === suite)
@@ -50,4 +78,4 @@ function validateAttestation(attestation, fingerprint) {
   }
   return true
 }
-module.exports = { stages, isolatedConfig, materialFingerprint, validateAttestation }
+module.exports = { stages, isolatedConfig, materialFingerprint, materialManifest, changedMaterialFiles, validateAttestation }

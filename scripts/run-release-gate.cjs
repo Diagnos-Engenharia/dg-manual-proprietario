@@ -3,7 +3,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { spawn, spawnSync } = require('node:child_process')
 const { Pool } = require('pg')
-const { isolatedConfig, materialFingerprint, validateAttestation } = require('./release-policy.cjs')
+const { isolatedConfig, materialFingerprint, materialManifest, validateAttestation } = require('./release-policy.cjs')
 const root = path.resolve(__dirname, '..')
 const directory = path.resolve(process.env.TEST_ARTIFACT_DIR || path.join(root, '..', 'release-test'))
 const report = { schemaVersion: 1, status: 'running', startedAt: new Date().toISOString(), stages: [], matrices: [], limitations: ['OpenAI semantics use mocked responses; no live provider request', 'Private files use the isolated local adapter; live Vercel Blob transport is not certified', 'Chromium viewport/touch emulation; physical devices, Safari and Firefox not certified', 'Protected hosted preview still requires its separate review'] }
@@ -39,6 +39,7 @@ function run(name, args, env) {
     fs.mkdirSync(directory, { recursive: true }); fs.mkdirSync(config.files, { recursive: true })
     started = true
     report.observedHead = git(['rev-parse', 'HEAD']); report.workingTreeDirty = Boolean(git(['status', '--porcelain']))
+    report.materialFiles = materialManifest(root)
     report.fingerprint = materialFingerprint(root)
     const env = { ...process.env, DATABASE_URL: config.database, DG_TEST_DATABASE_URL: config.database, DG_PREVIEW_FILES_DIR: config.files, TEST_ARTIFACT_DIR: directory, TEST_BASE_URL: config.origin, BETTER_AUTH_URL: config.origin, BETTER_AUTH_SECRET: 'local-isolated-e2e-secret-only-2026', INTEGRATION_ENCRYPTION_KEY: 'local-isolated-encryption-secret-only-2026', DG_RELEASE_BOOTSTRAP: 'isolated-local-tests', DG_ROUTE_AUDIT_OUTPUT: path.join(directory, 'route-inventory.json') }
     delete env.BLOB_READ_WRITE_TOKEN; delete env.OPENAI_API_KEY; delete env.DG_ALLOW_TEST_SEEDS
@@ -66,6 +67,7 @@ function run(name, args, env) {
     await run('browser', [path.join(root, 'scripts', 'run-local-e2e.cjs')], env)
     for (const suite of ['internal', 'clients']) report.matrices.push(JSON.parse(fs.readFileSync(path.join(directory, 'matrix-' + suite + '.json'), 'utf8')))
     assert.equal(materialFingerprint(root), report.fingerprint, 'Sources changed while tests ran; rerun the isolated gate for the final snapshot')
+    assert.deepEqual(materialManifest(root), report.materialFiles, 'Material files changed while tests ran; rerun the isolated gate for the final snapshot')
     report.status = 'passed'; report.completedAt = new Date().toISOString()
     validateAttestation(report, report.fingerprint)
     fs.mkdirSync(path.join(root, '.qa'), { recursive: true })
